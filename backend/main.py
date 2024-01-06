@@ -3,6 +3,7 @@ import argparse
 import os
 from tomotwin.modules.common.io.mrc_format import MrcFormat
 from tomotwin.modules.inference.embedor import TorchEmbedor
+import numpy as np
 
 app = Flask(__name__)
 
@@ -33,7 +34,12 @@ def extract_subvolume(tomo, coordinate, window_size):
 
 def embedding_function(tomo, coordinate, embedor, window_size):
     subvolume = extract_subvolume(tomo, coordinate, window_size)
-    embedding = embedor.embed(subvolume)
+
+    subvolume_batch = np.expand_dims(subvolume, axis=0)
+
+    # Now, pass the batch to the embedor
+    embedding = embedor.embed(subvolume_batch)
+
     return embedding
 
 @app.route('/compute_embedding', methods=['POST'])
@@ -57,3 +63,7 @@ if __name__ == "__main__":
     initialize_embedor(args.mrc_file, args.model_path)
 
     app.run(debug=True, port=5000)
+
+# python main.py /hpc/projects/group.czii/kyle.harrington/from_reza/Position_44_SIRT_rec.mrc /hpc/mydata/kyle.harrington/.album/lnk/inst/9/data/tomotwin_latest.pth
+# main.initialize_embedor("/hpc/projects/group.czii/kyle.harrington/from_reza/Position_44_SIRT_rec.mrc", '/hpc/mydata/kyle.harrington/.album/lnk/inst/9/data/tomotwin_latest.pth')
+# main.embedding_function(main.tomo, (200, 200, 200), main.embedor, 37)
