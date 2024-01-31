@@ -67,9 +67,9 @@ image_shape = mrc_data.shape
 
 # output zarr
 
-# Define the crop range
-z_range = slice(150, 160)
-y_range = slice(450, 850)
+
+z_range = slice(450, 850)
+y_range = slice(300, 600)
 x_range = slice(300, 600)
 
 # Step 1: Filter embedding_df for the crop range
@@ -90,15 +90,13 @@ for index, row in filtered_df.iterrows():
     embedding_array[z, y, x, :] = row.values[3:]
 
 # Step 5: Write to Zarr file
-zarr_file = zarr.open('my_data.zarr', mode='w')
-zarr_file.create_dataset('crop', data=crop, chunks=(10, 200, 200))
-zarr_file.create_dataset('embedding', data=embedding_array, chunks=(10, 200, 200, embedding_dims))
-
+with zarr.open('my_data.zarr', mode='w') as zarr_file:
+    zarr_file.create_dataset('crop', data=crop, chunks=(10, 200, 200))
+    zarr_file.create_dataset('embedding', data=embedding_array, chunks=(10, 200, 200, embedding_dims))
 
 # Access the datasets from the Zarr file
 crop_data = zarr_file['crop'][:]
 embedding_data = np.transpose(zarr_file['embedding'][:], (3, 0, 1, 2))
-
 
 # Add the datasets to the viewer
 viewer.add_image(crop_data, name='crop')

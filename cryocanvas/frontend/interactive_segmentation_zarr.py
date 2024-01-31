@@ -101,26 +101,26 @@ class NapariMLWidget(QWidget):
         layout.addLayout(model_layout)
 
         # Select the range of sigma sizes
-        self.sigma_start_spinbox = QDoubleSpinBox()
-        self.sigma_start_spinbox.setRange(0, 256)
-        self.sigma_start_spinbox.setValue(1)
+        # self.sigma_start_spinbox = QDoubleSpinBox()
+        # self.sigma_start_spinbox.setRange(0, 256)
+        # self.sigma_start_spinbox.setValue(1)
 
-        self.sigma_end_spinbox = QDoubleSpinBox()
-        self.sigma_end_spinbox.setRange(0, 256)
-        self.sigma_end_spinbox.setValue(5)
-
-        sigma_layout = QHBoxLayout()
-        sigma_layout.addWidget(QLabel("Sigma Range: From"))
-        sigma_layout.addWidget(self.sigma_start_spinbox)
-        sigma_layout.addWidget(QLabel("To"))
-        sigma_layout.addWidget(self.sigma_end_spinbox)
-        layout.addLayout(sigma_layout)
+        # self.sigma_end_spinbox = QDoubleSpinBox()
+        # self.sigma_end_spinbox.setRange(0, 256)
+        # self.sigma_end_spinbox.setValue(5)
+    
+        # sigma_layout = QHBoxLayout()
+        # sigma_layout.addWidget(QLabel("Sigma Range: From"))
+        # sigma_layout.addWidget(self.sigma_start_spinbox)
+        # sigma_layout.addWidget(QLabel("To"))
+        # sigma_layout.addWidget(self.sigma_end_spinbox)
+        # layout.addLayout(sigma_layout)
 
         # Boolean options for features
-        self.intensity_checkbox = QCheckBox("Intensity")
+        self.intensity_checkbox = QCheckBox("Basic")
         self.intensity_checkbox.setChecked(True)
-        self.edges_checkbox = QCheckBox("Edges")
-        self.texture_checkbox = QCheckBox("Texture")
+        self.edges_checkbox = QCheckBox("CNN features")
+        self.texture_checkbox = QCheckBox("Embedding")
         self.texture_checkbox.setChecked(True)
 
         features_group = QGroupBox("Features")
@@ -158,7 +158,7 @@ class NapariMLWidget(QWidget):
 # Let's add this widget to napari
 
 widget = NapariMLWidget()
-viewer.window.add_dock_widget(widget, name="halfway to I2K 2023 America")
+viewer.window.add_dock_widget(widget, name="CryoCanvas")
 
 # Let's start with our event listener
 
@@ -181,8 +181,8 @@ def on_data_change(event, viewer=None, widget=None):
             viewer.dims,
             widget.model_dropdown.currentText(),
             {
-                "sigma_min": widget.sigma_start_spinbox.value(),
-                "sigma_max": widget.sigma_end_spinbox.value(),
+#                "sigma_min": widget.sigma_start_spinbox.value(),
+#                "sigma_max": widget.sigma_end_spinbox.value(),
                 "intensity": widget.intensity_checkbox.isChecked(),
                 "edges": widget.edges_checkbox.isChecked(),
                 "texture": widget.texture_checkbox.isChecked(),
@@ -322,3 +322,5 @@ for listener in [
             timeout=1000,
         )
     )
+
+    
