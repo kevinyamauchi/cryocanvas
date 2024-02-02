@@ -302,6 +302,10 @@ class CryoCanvasApp:
         self.widget.canvas.draw()
 
     def estimate_background(self):
+        # Start the background painting in a new thread
+        threading.Thread(target=self._paint_background_thread).start()
+
+    def _paint_background_thread(self):
         print("Estimating background label")
         embedding_data = self.feature_data_tomotwin[:]
 
@@ -312,6 +316,7 @@ class CryoCanvasApp:
         distances = np.sqrt(np.sum((embedding_data - median_embedding)**2, axis=-1))
 
         # Define a threshold for background detection
+        # TODO note this is hardcoded
         threshold = np.percentile(distances.flatten(), 1)
 
         # Identify background pixels (where distance is less than the threshold)
