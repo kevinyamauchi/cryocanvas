@@ -192,7 +192,7 @@ class CryoCanvasApp:
 
         if data_choice == "Current Displayed Region":
             # Use only the currently displayed region.
-            training_features = compute_features(active_image, mask_idx, use_skimage_features, use_tomotwin_features)
+            training_features = compute_features(mask_idx, use_skimage_features, use_tomotwin_features)
             training_labels = np.squeeze(active_labels)
         elif data_choice == "Whole Image":
             if use_skimage_features:
@@ -212,8 +212,7 @@ class CryoCanvasApp:
             )
             self.model = self.update_model(training_labels, training_features, model_type)
 
-        # Don't do live prediction on whole image, that happens earlier slicewise
-        if live_prediction:
+        if live_prediction and self.model:
             # Update prediction_data
             if use_skimage_features:
                 prediction_features = np.array(self.feature_data_skimage)
@@ -237,6 +236,10 @@ class CryoCanvasApp:
         filtered_features = reshaped_features[valid_labels, :]
         filtered_labels = labels[valid_labels] - 1  # Adjust labels
 
+        if filtered_labels.size == 0:
+            self.logger.info("No labels present. Skipping model update.")
+            return None
+        
         # Calculate class weights
         unique_labels = np.unique(filtered_labels)
         class_weights = compute_class_weight('balanced', classes=unique_labels, y=filtered_labels)
