@@ -64,8 +64,8 @@ class CryoCanvasApp:
         )
 
         # Set defaults for layers
-        app.get_painting_layer().brush_size = 2
-        app.get_painting_layer().n_edit_dimensions = 3
+        self.get_painting_layer().brush_size = 2
+        self.get_painting_layer().n_edit_dimensions = 3
 
     def _init_logging(self):
         self.logger = logging.getLogger("cryocanvas")
@@ -399,4 +399,4 @@ class CryoCanvasWidget(QWidget):
 if __name__ == "__main__":
     zarr_path = "/Users/kharrington/Data/CryoCanvas/cryocanvas_crop_006.zarr"
     app = CryoCanvasApp(zarr_path)
-    # napari.run()
+    napari.run()
