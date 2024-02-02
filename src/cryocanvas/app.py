@@ -10,6 +10,7 @@ from qtpy.QtWidgets import (
     QHBoxLayout,
     QCheckBox,
     QGroupBox,
+    QPushButton,
 )
 from skimage.feature import multiscale_basic_features
 from sklearn.ensemble import RandomForestClassifier
@@ -49,7 +50,7 @@ class CryoCanvasApp:
             dimension_separator=".",
         )
         self.prediction_layer = self.viewer.add_labels(
-            self.prediction_data, name="Prediction", scale=self.data_layer.scale
+            self.prediction_data, name="Prediction", scale=self.data_layer.scale, opacity=0.1
         )
         self.painting_data = zarr.open(
             f"{self.zarr_path}/painting",
@@ -61,6 +62,10 @@ class CryoCanvasApp:
         self.painting_layer = self.viewer.add_labels(
             self.painting_data, name="Painting", scale=self.data_layer.scale
         )
+
+        # Set defaults for layers
+        app.get_painting_layer().brush_size = 2
+        app.get_painting_layer().n_edit_dimensions = 3
 
     def _init_logging(self):
         self.logger = logging.getLogger("cryocanvas")
@@ -75,6 +80,7 @@ class CryoCanvasApp:
     def _add_widget(self):
         self.widget = CryoCanvasWidget()
         self.viewer.window.add_dock_widget(self.widget, name="CryoCanvas")
+        self.widget.estimate_background_button.clicked.connect(self.estimate_background)
         self._connect_events()
 
     def _connect_events(self):
@@ -293,7 +299,38 @@ class CryoCanvasApp:
         ax2.set_xlabel('Class')
         ax2.set_ylabel('Count')
 
-        self.widget.canvas.draw()    
+        self.widget.canvas.draw()
+
+    def estimate_background(self):
+        print("Estimating background label")
+        embedding_data = self.feature_data_tomotwin[:]
+
+        # Compute the median of the embeddings
+        median_embedding = np.median(embedding_data, axis=(0, 1, 2))
+
+        # Compute the Euclidean distance from the median for each embedding
+        distances = np.sqrt(np.sum((embedding_data - median_embedding)**2, axis=-1))
+
+        # Define a threshold for background detection
+        threshold = np.percentile(distances.flatten(), 1)
+
+        # Identify background pixels (where distance is less than the threshold)
+        background_mask = distances < threshold
+        indices = np.where(background_mask)
+
+        print(f"Distance distribution: min {np.min(distances)} max {np.max(distances)} mean {np.mean(distances)} median {np.median(distances)} threshold {threshold}")
+        
+        print(f"Labeling {np.sum(background_mask)} pixels as background")
+
+        # TODO: optimize this because it is wicked slow
+        #       once that is done the threshold can be increased 
+        # Update the painting data with the background class (1)        
+        for i in range(len(indices[0])):
+            self.painting_data[indices[0][i], indices[1][i], indices[2][i]] = 1
+
+        # Refresh the painting layer to show the updated background
+        self.get_painting_layer().refresh()
+        
 
 
 class CryoCanvasWidget(QWidget):
@@ -326,6 +363,10 @@ class CryoCanvasWidget(QWidget):
         features_group.setLayout(features_layout)
         layout.addWidget(features_group)
 
+        # Button for estimating background
+        self.estimate_background_button = QPushButton("Estimate Background")
+        layout.addWidget(self.estimate_background_button)
+        
         # Dropdown for data selection
         data_label = QLabel("Select Data for Model Fitting")
         self.data_dropdown = QComboBox()
@@ -358,4 +399,4 @@ class CryoCanvasWidget(QWidget):
 if __name__ == "__main__":
     zarr_path = "/Users/kharrington/Data/CryoCanvas/cryocanvas_crop_006.zarr"
     app = CryoCanvasApp(zarr_path)
-    napari.run()
+    # napari.run()
