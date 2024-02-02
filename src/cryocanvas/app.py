@@ -21,6 +21,8 @@ from superqt import ensure_main_thread
 import logging
 import sys
 import xgboost as xgb
+from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.figure import Figure
 
 
 # Define a class to encapsulate the Napari viewer and related functionalities
@@ -126,6 +128,9 @@ class CryoCanvasApp:
         # Ensure the prediction layer visual is updated
         self.get_prediction_layer().refresh()
 
+        # Update class distribution charts
+        self.update_class_distribution_charts()
+        
     def threaded_on_data_change(
         self,
         event,
@@ -265,6 +270,28 @@ class CryoCanvasApp:
 
         return np.transpose(prediction)
 
+    def update_class_distribution_charts(self):
+        painting_labels, painting_counts = np.unique(self.painting_data[:], return_counts=True)
+        prediction_labels, prediction_counts = np.unique(self.get_prediction_layer().data[:], return_counts=True)
+
+        self.widget.figure.clear()
+
+        # Subplots for class distribution
+        ax1 = self.widget.figure.add_subplot(121)
+        ax2 = self.widget.figure.add_subplot(122)
+
+        ax1.bar(painting_labels, painting_counts, color='blue')
+        ax1.set_title('Painting Layer')
+        ax1.set_xlabel('Class')
+        ax1.set_ylabel('Count')
+
+        ax2.bar(prediction_labels, prediction_counts, color='green')
+        ax2.set_title('Prediction Layer')
+        ax2.set_xlabel('Class')
+        ax2.set_ylabel('Count')
+
+        self.widget.canvas.draw()    
+
 
 class CryoCanvasWidget(QWidget):
     def __init__(self, parent=None):
@@ -316,6 +343,11 @@ class CryoCanvasWidget(QWidget):
         self.live_pred_checkbox.setChecked(True)
         layout.addWidget(self.live_pred_checkbox)
 
+        # Add class distribution plot
+        self.figure = Figure()
+        self.canvas = FigureCanvas(self.figure)
+        layout.addWidget(self.canvas)
+        
         self.setLayout(layout)
 
 
