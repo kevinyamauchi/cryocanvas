@@ -273,9 +273,9 @@ class NapariMLWidget(QWidget):
         layout.addLayout(model_layout)
 
         # Boolean options for features
-        self.basic_checkbox = QCheckBox("Basic")  # Renamed from intensity_checkbox to basic_checkbox
+        self.basic_checkbox = QCheckBox("Basic")
         self.basic_checkbox.setChecked(True)
-        self.embedding_checkbox = QCheckBox("Embedding")  # Renamed from texture_checkbox to embedding_checkbox
+        self.embedding_checkbox = QCheckBox("Embedding")
         self.embedding_checkbox.setChecked(True)
 
         features_group = QGroupBox("Features")
