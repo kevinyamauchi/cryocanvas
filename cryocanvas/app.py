@@ -69,7 +69,7 @@ class CryoCanvasApp:
         self.logger.addHandler(streamHandler)
 
     def _add_widget(self):
-        self.widget = NapariMLWidget()
+        self.widget = CryoCanvasWidget()
         self.viewer.window.add_dock_widget(self.widget, name="CryoCanvas")
         self._connect_events()
 
@@ -255,9 +255,9 @@ class CryoCanvasApp:
         return np.transpose(prediction)
 
 
-class NapariMLWidget(QWidget):
+class CryoCanvasWidget(QWidget):
     def __init__(self, parent=None):
-        super(NapariMLWidget, self).__init__(parent)
+        super(CryoCanvasWidget, self).__init__(parent)
         self.initUI()
 
     def initUI(self):
