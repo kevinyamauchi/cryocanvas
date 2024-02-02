@@ -13,12 +13,14 @@ from qtpy.QtWidgets import (
 )
 from skimage.feature import multiscale_basic_features
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.utils.class_weight import compute_class_weight
 from skimage import future
 import toolz as tz
 from psygnal import debounced
 from superqt import ensure_main_thread
 import logging
 import sys
+import xgboost as xgb
 
 
 # Define a class to encapsulate the Napari viewer and related functionalities
@@ -223,9 +225,6 @@ class CryoCanvasApp:
     def update_model(self, labels, features, model_type):
         # Flatten labels
         labels = labels.flatten()
-
-        # Flatten the first three dimensions of features
-        # New shape will be (10*200*200, 32)
         reshaped_features = features.reshape(-1, features.shape[-1])
 
         # Filter features where labels are greater than 0
@@ -233,12 +232,24 @@ class CryoCanvasApp:
         filtered_features = reshaped_features[valid_labels, :]
         filtered_labels = labels[valid_labels] - 1  # Adjust labels
 
+        # Calculate class weights
+        unique_labels = np.unique(filtered_labels)
+        class_weights = compute_class_weight('balanced', classes=unique_labels, y=filtered_labels)
+        weight_dict = dict(zip(unique_labels, class_weights))
+
+        # Apply weights
+        sample_weights = np.vectorize(weight_dict.get)(filtered_labels)
+        
         # Model fitting
         if model_type == "Random Forest":
             clf = RandomForestClassifier(
-                n_estimators=50, n_jobs=-1, max_depth=10, max_samples=0.05
+                n_estimators=50, n_jobs=-1, max_depth=10, max_samples=0.05, class_weight=weight_dict
             )
             clf.fit(filtered_features, filtered_labels)
+            return clf
+        elif model_type == "XGBoost":
+            clf = xgb.XGBClassifier(n_estimators=100, learning_rate=0.1, use_label_encoder=False)
+            clf.fit(filtered_features, filtered_labels, sample_weight=sample_weights)
             return clf
         else:
             raise ValueError(f"Unsupported model type: {model_type}")
@@ -266,7 +277,7 @@ class CryoCanvasWidget(QWidget):
         # Dropdown for selecting the model
         model_label = QLabel("Select Model")
         self.model_dropdown = QComboBox()
-        self.model_dropdown.addItems(["Random Forest"])
+        self.model_dropdown.addItems(["Random Forest", "XGBoost"])
         model_layout = QHBoxLayout()
         model_layout.addWidget(model_label)
         model_layout.addWidget(self.model_dropdown)
