@@ -308,7 +308,6 @@ class CryoCanvasWidget(QWidget):
         self.setLayout(layout)
 
 
-
 # Initialize your application
 if __name__ == "__main__":
     zarr_path = "/Users/kharrington/Data/CryoCanvas/cryocanvas_crop_006.zarr"
