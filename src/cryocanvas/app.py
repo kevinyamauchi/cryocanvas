@@ -22,8 +22,14 @@ from superqt import ensure_main_thread
 import logging
 import sys
 import xgboost as xgb
-from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_qt5agg import (
+    FigureCanvasQTAgg as FigureCanvas,
+)
 from matplotlib.figure import Figure
+from matplotlib.colors import to_rgba
+
+# from https://github.com/napari/napari/issues/4384
 
 
 # Define a class to encapsulate the Napari viewer and related functionalities
@@ -40,6 +46,35 @@ class CryoCanvasApp:
         self._add_widget()
         self.model = None
 
+    def get_labels_colormap(self):
+        """Return a colormap for distinct label colors based on:
+        Green-Armytage, P., 2010. A colour alphabet and the limits of colour coding. JAIC-Journal of the International Colour Association, 5.
+        """
+        colormap_22 = {
+            0: np.array([0, 0, 0, 0]),  # alpha
+            1: np.array([1, 1, 0, 1]),  # yellow
+            2: np.array([0.5, 0, 0.5, 1]),  # purple
+            3: np.array([1, 0.65, 0, 1]),  # orange
+            4: np.array([0.68, 0.85, 0.9, 1]),  # light blue
+            5: np.array([1, 0, 0, 1]),  # red
+            6: np.array([1, 0.94, 0.8, 1]),  # buff
+            7: np.array([0.5, 0.5, 0.5, 1]),  # grey
+            8: np.array([0, 0.5, 0, 1]),  # green
+            9: np.array([0.8, 0.6, 0.8, 1]),  # purplish pink
+            10: np.array([0, 0, 1, 1]),  # blue
+            11: np.array([1, 0.85, 0.7, 1]),  # yellowish pink
+            12: np.array([0.54, 0.17, 0.89, 1]),  # violet
+            13: np.array([1, 0.85, 0, 1]),  # orange yellow
+            14: np.array([0.65, 0.09, 0.28, 1]),  # purplish red
+            15: np.array([0.68, 0.8, 0.18, 1]),  # greenish yellow
+            16: np.array([0.65, 0.16, 0.16, 1]),  # reddish brown
+            17: np.array([0.5, 0.8, 0, 1]),  # yellow green
+            18: np.array([0.8, 0.6, 0.2, 1]),  # yellowish brown
+            19: np.array([1, 0.27, 0, 1]),  # reddish orange
+            20: np.array([0.5, 0.5, 0.2, 1]),  # olive green
+        }
+        return colormap_22
+
     def _init_viewer_layers(self):
         self.data_layer = self.viewer.add_image(self.image_data, name="Image")
         self.prediction_data = zarr.open(
@@ -50,7 +85,11 @@ class CryoCanvasApp:
             dimension_separator=".",
         )
         self.prediction_layer = self.viewer.add_labels(
-            self.prediction_data, name="Prediction", scale=self.data_layer.scale, opacity=0.1
+            self.prediction_data,
+            name="Prediction",
+            scale=self.data_layer.scale,
+            opacity=0.1,
+            color=self.get_labels_colormap(),
         )
         self.painting_data = zarr.open(
             f"{self.zarr_path}/painting",
@@ -60,7 +99,10 @@ class CryoCanvasApp:
             dimension_separator=".",
         )
         self.painting_layer = self.viewer.add_labels(
-            self.painting_data, name="Painting", scale=self.data_layer.scale
+            self.painting_data,
+            name="Painting",
+            scale=self.data_layer.scale,
+            color=self.get_labels_colormap(),
         )
 
         # Set defaults for layers
@@ -80,7 +122,9 @@ class CryoCanvasApp:
     def _add_widget(self):
         self.widget = CryoCanvasWidget()
         self.viewer.window.add_dock_widget(self.widget, name="CryoCanvas")
-        self.widget.estimate_background_button.clicked.connect(self.estimate_background)
+        self.widget.estimate_background_button.clicked.connect(
+            self.estimate_background
+        )
         self._connect_events()
 
     def _connect_events(self):
@@ -109,7 +153,7 @@ class CryoCanvasApp:
 
     def on_data_change(self, event, app):
         # Define corner_pixels based on the current view or other logic
-        corner_pixels = self.viewer.layers['Image'].corner_pixels
+        corner_pixels = self.viewer.layers["Image"].corner_pixels
 
         # Start the thread with correct arguments
         thread = threading.Thread(
@@ -136,7 +180,7 @@ class CryoCanvasApp:
 
         # Update class distribution charts
         self.update_class_distribution_charts()
-        
+
     def threaded_on_data_change(
         self,
         event,
@@ -153,13 +197,16 @@ class CryoCanvasApp:
         # Find a mask of indices we will use for fetching our data
         mask_idx = (
             slice(
-                self.viewer.dims.current_step[0], self.viewer.dims.current_step[0] + 1
+                self.viewer.dims.current_step[0],
+                self.viewer.dims.current_step[0] + 1,
             ),
             slice(corner_pixels[0, 1], corner_pixels[1, 1]),
             slice(corner_pixels[0, 2], corner_pixels[1, 2]),
         )
         if data_choice == "Whole Image":
-            mask_idx = tuple([slice(0, sz) for sz in self.get_data_layer().data.shape])
+            mask_idx = tuple(
+                [slice(0, sz) for sz in self.get_data_layer().data.shape]
+            )
 
         self.logger.info(
             f"mask idx {mask_idx}, image {self.get_data_layer().data.shape}"
@@ -171,7 +218,9 @@ class CryoCanvasApp:
 
         active_labels = self.painting_data[mask_idx]
 
-        def compute_features(mask_idx, use_skimage_features, use_tomotwin_features):
+        def compute_features(
+            mask_idx, use_skimage_features, use_tomotwin_features
+        ):
             features = []
             if use_skimage_features:
                 features.append(
@@ -198,7 +247,9 @@ class CryoCanvasApp:
 
         if data_choice == "Current Displayed Region":
             # Use only the currently displayed region.
-            training_features = compute_features(mask_idx, use_skimage_features, use_tomotwin_features)
+            training_features = compute_features(
+                mask_idx, use_skimage_features, use_tomotwin_features
+            )
             training_labels = np.squeeze(active_labels)
         elif data_choice == "Whole Image":
             if use_skimage_features:
@@ -216,16 +267,20 @@ class CryoCanvasApp:
             self.logger.info(
                 f"training model with labels {training_labels.shape} features {training_features.shape} unique labels {np.unique(training_labels[:])}"
             )
-            self.model = self.update_model(training_labels, training_features, model_type)
+            self.model = self.update_model(
+                training_labels, training_features, model_type
+            )
 
         if live_prediction and self.model:
             # Update prediction_data
             if use_skimage_features:
                 prediction_features = np.array(self.feature_data_skimage)
             else:
-                prediction_features = np.array(self.feature_data_tomotwin)            
+                prediction_features = np.array(self.feature_data_tomotwin)
             # Add 1 becasue of the background label adjustment for the model
-            prediction = self.predict(self.model, prediction_features, model_type)
+            prediction = self.predict(
+                self.model, prediction_features, model_type
+            )
             self.logger.info(
                 f"prediction {prediction.shape} prediction layer {self.get_prediction_layer().data.shape} prediction {np.transpose(prediction).shape} features {prediction_features.shape}"
             )
@@ -245,25 +300,37 @@ class CryoCanvasApp:
         if filtered_labels.size == 0:
             self.logger.info("No labels present. Skipping model update.")
             return None
-        
+
         # Calculate class weights
         unique_labels = np.unique(filtered_labels)
-        class_weights = compute_class_weight('balanced', classes=unique_labels, y=filtered_labels)
+        class_weights = compute_class_weight(
+            "balanced", classes=unique_labels, y=filtered_labels
+        )
         weight_dict = dict(zip(unique_labels, class_weights))
 
         # Apply weights
         sample_weights = np.vectorize(weight_dict.get)(filtered_labels)
-        
+
         # Model fitting
         if model_type == "Random Forest":
             clf = RandomForestClassifier(
-                n_estimators=50, n_jobs=-1, max_depth=10, max_samples=0.05, class_weight=weight_dict
+                n_estimators=50,
+                n_jobs=-1,
+                max_depth=10,
+                max_samples=0.05,
+                class_weight=weight_dict,
             )
             clf.fit(filtered_features, filtered_labels)
             return clf
         elif model_type == "XGBoost":
-            clf = xgb.XGBClassifier(n_estimators=100, learning_rate=0.1, use_label_encoder=False)
-            clf.fit(filtered_features, filtered_labels, sample_weight=sample_weights)
+            clf = xgb.XGBClassifier(
+                n_estimators=100, learning_rate=0.1, use_label_encoder=False
+            )
+            clf.fit(
+                filtered_features,
+                filtered_labels,
+                sample_weight=sample_weights,
+            )
             return clf
         else:
             raise ValueError(f"Unsupported model type: {model_type}")
@@ -280,24 +347,96 @@ class CryoCanvasApp:
         return np.transpose(prediction)
 
     def update_class_distribution_charts(self):
-        painting_labels, painting_counts = np.unique(self.painting_data[:], return_counts=True)
-        prediction_labels, prediction_counts = np.unique(self.get_prediction_layer().data[:], return_counts=True)
+        # Example class to color mapping, this needs to match your label colors
+        class_color_mapping = {
+            label: "#{:02x}{:02x}{:02x}".format(
+                int(rgba[0] * 255), int(rgba[1] * 255), int(rgba[2] * 255)
+            )
+            for label, rgba in self.get_labels_colormap().items()
+        }
+
+        painting_labels, painting_counts = np.unique(
+            self.painting_data[:], return_counts=True
+        )
+        prediction_labels, prediction_counts = np.unique(
+            self.get_prediction_layer().data[:], return_counts=True
+        )
+
+        # Include class 0 for prediction if it's missing
+        if 0 not in prediction_labels:
+            prediction_labels = np.insert(prediction_labels, 0, 0)
+            prediction_counts = np.insert(prediction_counts, 0, 0)
+
+        # Align classes between painting and prediction
+        all_labels = np.union1d(painting_labels, prediction_labels)
+
+        # Get counts for all classes, filling in zeros where a class doesn't exist
+        aligned_painting_counts = [
+            painting_counts[np.where(painting_labels == label)][0]
+            if label in painting_labels
+            else 0
+            for label in all_labels
+        ]
+        aligned_prediction_counts = [
+            prediction_counts[np.where(prediction_labels == label)][0]
+            if label in prediction_labels
+            else 0
+            for label in all_labels
+        ]
 
         self.widget.figure.clear()
 
-        # Subplots for class distribution
-        ax1 = self.widget.figure.add_subplot(121)
-        ax2 = self.widget.figure.add_subplot(122)
+        napari_charcoal_hex = "#262930"
 
-        ax1.bar(painting_labels, painting_counts, color='blue')
-        ax1.set_title('Painting Layer')
-        ax1.set_xlabel('Class')
-        ax1.set_ylabel('Count')
+        # Custom style adjustments for dark theme
+        dark_background_style = {
+            "figure.facecolor": napari_charcoal_hex,
+            "axes.facecolor": napari_charcoal_hex,
+            "axes.edgecolor": "white",
+            "axes.labelcolor": "white",
+            "text.color": "white",
+            "xtick.color": "white",
+            "ytick.color": "white",
+            "axes.spines.top": False,
+            "axes.spines.right": False,
+        }
 
-        ax2.bar(prediction_labels, prediction_counts, color='green')
-        ax2.set_title('Prediction Layer')
-        ax2.set_xlabel('Class')
-        ax2.set_ylabel('Count')
+        with plt.style.context(dark_background_style):
+            ax1 = self.widget.figure.add_subplot(211)
+            ax2 = self.widget.figure.add_subplot(212)
+
+            # Plot the bars with the correct color mapping
+            ax1.bar(
+                all_labels,
+                aligned_painting_counts,
+                color=[
+                    class_color_mapping.get(x, "#FFFFFF") for x in all_labels
+                ],
+                edgecolor="white",
+            )
+            ax1.set_title("Painting Layer")
+            ax1.set_xlabel("Class")
+            ax1.set_ylabel("Count")
+            ax1.set_xticks(all_labels)  # Ensure only integer ticks are shown
+
+            ax2.bar(
+                all_labels,
+                aligned_prediction_counts,
+                color=[
+                    class_color_mapping.get(x, "#FFFFFF") for x in all_labels
+                ],
+                edgecolor="white",
+            )
+            ax2.set_title("Prediction Layer")
+            ax2.set_xlabel("Class")
+            ax2.set_ylabel("Count")
+            ax2.set_xticks(all_labels)  # Ensure only integer ticks are shown
+
+        # Automatically adjust subplot params so that the subplot(s) fits into the figure area
+        self.widget.figure.tight_layout(pad=3.0)
+
+        # Explicitly set figure background color again to ensure it
+        self.widget.figure.patch.set_facecolor(napari_charcoal_hex)
 
         self.widget.canvas.draw()
 
@@ -313,7 +452,9 @@ class CryoCanvasApp:
         median_embedding = np.median(embedding_data, axis=(0, 1, 2))
 
         # Compute the Euclidean distance from the median for each embedding
-        distances = np.sqrt(np.sum((embedding_data - median_embedding)**2, axis=-1))
+        distances = np.sqrt(
+            np.sum((embedding_data - median_embedding) ** 2, axis=-1)
+        )
 
         # Define a threshold for background detection
         # TODO note this is hardcoded
@@ -323,19 +464,20 @@ class CryoCanvasApp:
         background_mask = distances < threshold
         indices = np.where(background_mask)
 
-        print(f"Distance distribution: min {np.min(distances)} max {np.max(distances)} mean {np.mean(distances)} median {np.median(distances)} threshold {threshold}")
-        
+        print(
+            f"Distance distribution: min {np.min(distances)} max {np.max(distances)} mean {np.mean(distances)} median {np.median(distances)} threshold {threshold}"
+        )
+
         print(f"Labeling {np.sum(background_mask)} pixels as background")
 
         # TODO: optimize this because it is wicked slow
-        #       once that is done the threshold can be increased 
-        # Update the painting data with the background class (1)        
+        #       once that is done the threshold can be increased
+        # Update the painting data with the background class (1)
         for i in range(len(indices[0])):
             self.painting_data[indices[0][i], indices[1][i], indices[2][i]] = 1
 
         # Refresh the painting layer to show the updated background
         self.get_painting_layer().refresh()
-        
 
 
 class CryoCanvasWidget(QWidget):
@@ -371,11 +513,13 @@ class CryoCanvasWidget(QWidget):
         # Button for estimating background
         self.estimate_background_button = QPushButton("Estimate Background")
         layout.addWidget(self.estimate_background_button)
-        
+
         # Dropdown for data selection
         data_label = QLabel("Select Data for Model Fitting")
         self.data_dropdown = QComboBox()
-        self.data_dropdown.addItems(["Current Displayed Region", "Whole Image"])
+        self.data_dropdown.addItems(
+            ["Current Displayed Region", "Whole Image"]
+        )
         self.data_dropdown.setCurrentText("Whole Image")
         data_layout = QHBoxLayout()
         data_layout.addWidget(data_label)
@@ -396,7 +540,7 @@ class CryoCanvasWidget(QWidget):
         self.figure = Figure()
         self.canvas = FigureCanvas(self.figure)
         layout.addWidget(self.canvas)
-        
+
         self.setLayout(layout)
 
 
@@ -404,4 +548,4 @@ class CryoCanvasWidget(QWidget):
 if __name__ == "__main__":
     zarr_path = "/Users/kharrington/Data/CryoCanvas/cryocanvas_crop_006.zarr"
     app = CryoCanvasApp(zarr_path)
-    napari.run()
+    # napari.run()
