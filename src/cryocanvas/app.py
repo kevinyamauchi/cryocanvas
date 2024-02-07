@@ -562,29 +562,27 @@ class CryoCanvasApp:
         self.widget.embedding_canvas.draw()
 
     def update_painting_layer(self, path):
-        # Start a new thread to update the painting layer
-        update_thread = Thread(target=self.paint_thread, args=(path,))
+        # Fetch the currently active label from the painting layer
+        target_label = self.get_painting_layer().selected_label
+        # Start a new thread to update the painting layer with the current target label
+        update_thread = Thread(target=self.paint_thread, args=(path, target_label,))
         update_thread.start()
 
-    def paint_thread(self, path):
+    def paint_thread(self, path, target_label):
         # Calculate which points are inside the lasso path
         contained = np.array([path.contains_point([x, y]) for x, y in zip(self.pls_embedding[:, 0], self.pls_embedding[:, 1])])
         indices = np.nonzero(contained)[0]
 
-        target_label = 2
-        
         print(f"Painting {len(indices)} pixels as {target_label}")
         
         # Update painting layer for each point contained in the lasso selection
         for index in indices:
             x, y, z = self.filtered_coords[index]
-
-            # Note: Ensure the logic here matches how your `painting_data` is structured and should be modified.
-            # This example assumes `painting_data` is structured with z, y, x dimensions, and you want to set a specific label.
+            # Update the painting data at the specified coordinates with the target label
             self.painting_data[z, y, x] = target_label
 
         print("Done painting")
-            
+        
         # Refresh the painting layer to show the updated background
         ensure_main_thread(self.get_painting_layer().refresh)()
         
