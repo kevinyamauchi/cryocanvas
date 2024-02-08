@@ -480,7 +480,7 @@ class CryoCanvasApp:
         self.get_painting_layer().refresh()
 
     def create_embedding_plot(self):
-        self.widget.embedding_figure.clear()  # Clear existing plot
+        self.widget.embedding_figure.clear()
 
         # Flatten the feature data and labels to match shapes
         features = self.feature_data_tomotwin[:].reshape(-1, self.feature_data_tomotwin.shape[-1])
@@ -490,10 +490,14 @@ class CryoCanvasApp:
         filtered_features = features[labels > 0]
         filtered_labels = labels[labels > 0]
 
-        # Initialize PLSRegression with 2 components for 2D projection
+        # Check if there are enough samples to proceed
+        if filtered_features.shape[0] < 2:
+            print("Not enough labeled data to create an embedding plot. Need at least 2 samples.")
+            return
+
+        # Proceed with PLSRegression as there's enough data
         self.pls = PLSRegression(n_components=2)
         self.pls_embedding = self.pls.fit_transform(filtered_features, filtered_labels)[0]
-
 
         # Original image coordinates
         z_dim, y_dim, x_dim, _ = self.feature_data_tomotwin.shape
