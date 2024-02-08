@@ -433,7 +433,7 @@ class CryoCanvasApp:
             ax1.set_title("Painting Layer")
             ax1.set_xlabel("Class")
             ax1.set_ylabel("Count")
-            ax1.set_xticks(all_labels)  # Ensure only integer ticks are shown
+            ax1.set_xticks(all_labels)
 
             ax2.bar(
                 all_labels,
@@ -446,7 +446,7 @@ class CryoCanvasApp:
             ax2.set_title("Prediction Layer")
             ax2.set_xlabel("Class")
             ax2.set_ylabel("Count")
-            ax2.set_xticks(all_labels)  # Ensure only integer ticks are shown
+            ax2.set_xticks(all_labels)
 
         # Automatically adjust subplot params so that the subplot(s) fits into the figure area
         self.widget.figure.tight_layout(pad=3.0)
@@ -507,15 +507,16 @@ class CryoCanvasApp:
         filtered_labels = labels[labels > 0]
 
         # Initialize PLSRegression with 2 components for 2D projection
-        pls = PLSRegression(n_components=2)
-        self.pls_embedding = pls.fit_transform(filtered_features, filtered_labels)[0]  # Save as an attribute
+        self.pls = PLSRegression(n_components=2)
+        self.pls_embedding = self.pls.fit_transform(filtered_features, filtered_labels)[0]
+
 
         # Original image coordinates
         z_dim, y_dim, x_dim, _ = self.feature_data_tomotwin.shape
         X, Y, Z = np.meshgrid(np.arange(x_dim), np.arange(y_dim), np.arange(z_dim), indexing='ij')
         original_coords = np.vstack([X.ravel(), Y.ravel(), Z.ravel()]).T
         # Filter coordinates using the same mask applied to the features
-        self.filtered_coords = original_coords[labels > 0]  # Save as an attribute
+        self.filtered_coords = original_coords[labels > 0]
         
         
         class_color_mapping = {
@@ -529,7 +530,7 @@ class CryoCanvasApp:
 
         # Custom style adjustments for dark theme
         napari_charcoal_hex = "#262930"
-        plt.style.use('dark_background')  # Using dark background style
+        plt.style.use('dark_background')
         self.widget.embedding_figure.patch.set_facecolor(napari_charcoal_hex)
 
         ax = self.widget.embedding_figure.add_subplot(111, facecolor=napari_charcoal_hex)
@@ -568,23 +569,31 @@ class CryoCanvasApp:
         update_thread = Thread(target=self.paint_thread, args=(path, target_label,))
         update_thread.start()
 
-    def paint_thread(self, path, target_label):
-        # Calculate which points are inside the lasso path
-        contained = np.array([path.contains_point([x, y]) for x, y in zip(self.pls_embedding[:, 0], self.pls_embedding[:, 1])])
-        indices = np.nonzero(contained)[0]
+    def paint_thread(self, lasso_path, target_label):
+        # Ensure we're working with the full feature dataset
+        all_features_flat = self.feature_data_tomotwin[:].reshape(-1, self.feature_data_tomotwin.shape[-1])
 
-        print(f"Painting {len(indices)} pixels as {target_label}")
-        
-        # Update painting layer for each point contained in the lasso selection
-        for index in indices:
-            x, y, z = self.filtered_coords[index]
-            # Update the painting data at the specified coordinates with the target label
+        # Use the PLS model to project these features into the embedding space
+        all_embeddings = self.pls.transform(all_features_flat)
+
+        # Determine which points fall within the lasso path
+        contained = np.array([lasso_path.contains_point(point) for point in all_embeddings[:, :2]])
+
+        # The shape of the original image data, to map flat indices back to spatial coordinates
+        shape = self.feature_data_tomotwin.shape[:-1]
+
+        # Iterate over all points to update the painting data where contained is True
+        for idx in np.where(contained)[0]:
+            # Map flat index back to spatial coordinates
+            z, y, x = np.unravel_index(idx, shape)
+            # Update the painting data
             self.painting_data[z, y, x] = target_label
 
-        print("Done painting")
+        print(f"Painted {np.sum(contained)} pixels with label {target_label}")
         
-        # Refresh the painting layer to show the updated background
+        # This call is necessary to update the painting layer in the main thread
         ensure_main_thread(self.get_painting_layer().refresh)()
+
         
         
 class CryoCanvasWidget(QWidget):
