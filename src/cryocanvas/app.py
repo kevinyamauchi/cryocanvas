@@ -11,7 +11,9 @@ from qtpy.QtWidgets import (
     QCheckBox,
     QGroupBox,
     QPushButton,
+    QSlider,
 )
+from qtpy.QtCore import Qt
 from skimage.feature import multiscale_basic_features
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.utils.class_weight import compute_class_weight
@@ -37,9 +39,9 @@ from sklearn.cross_decomposition import PLSRegression
 from matplotlib.widgets import LassoSelector
 from matplotlib.path import Path
 from threading import Thread
+from magicgui import magicgui
 
 # from https://github.com/napari/napari/issues/4384
-
 
 # Define a class to encapsulate the Napari viewer and related functionalities
 class CryoCanvasApp:
@@ -86,7 +88,7 @@ class CryoCanvasApp:
         return colormap_22
 
     def _init_viewer_layers(self):
-        self.data_layer = self.viewer.add_image(self.image_data, name="Image")
+        self.data_layer = self.viewer.add_image(self.image_data, name="Image", projection_mode='mean')
         self.prediction_data = zarr.open(
             f"{self.zarr_path}/prediction",
             mode="a",
@@ -119,7 +121,6 @@ class CryoCanvasApp:
         self.get_painting_layer().brush_size = 2
         self.get_painting_layer().n_edit_dimensions = 3
 
-
     def _init_logging(self):
         self.logger = logging.getLogger("cryocanvas")
         self.logger.setLevel(logging.DEBUG)
@@ -131,7 +132,7 @@ class CryoCanvasApp:
         self.logger.addHandler(streamHandler)
 
     def _add_widget(self):
-        self.widget = CryoCanvasWidget()
+        self.widget = CryoCanvasWidget(self)        
         self.viewer.window.add_dock_widget(self.widget, name="CryoCanvas")
         self.widget.estimate_background_button.clicked.connect(
             self.estimate_background
@@ -579,14 +580,11 @@ class CryoCanvasApp:
 
         print(f"Painted {np.sum(contained)} pixels with label {target_label}")
         
-        # This call is necessary to update the painting layer in the main thread
-        ensure_main_thread(self.get_painting_layer().refresh)()
-
-        
         
 class CryoCanvasWidget(QWidget):
-    def __init__(self, parent=None):
+    def __init__(self, app, parent=None):
         super(CryoCanvasWidget, self).__init__(parent)
+        self.app = app
         self.initUI()
 
     def initUI(self):
@@ -640,6 +638,20 @@ class CryoCanvasWidget(QWidget):
         self.live_pred_checkbox.setChecked(True)
         layout.addWidget(self.live_pred_checkbox)
 
+        # Slider for adjusting thickness
+        thickness_label = QLabel("Adjust Thickness")
+        self.thickness_slider = QSlider(Qt.Horizontal)
+        self.thickness_slider.setMinimum(0)
+        self.thickness_slider.setMaximum(50)
+        self.thickness_slider.setValue(10)
+        thickness_layout = QHBoxLayout()
+        thickness_layout.addWidget(thickness_label)
+        thickness_layout.addWidget(self.thickness_slider)
+        layout.addLayout(thickness_layout)
+
+        # Connect the slider to a method to update thickness
+        self.thickness_slider.valueChanged.connect(self.on_thickness_changed)
+        
         # Add class distribution plot
         self.figure = Figure()
         self.canvas = FigureCanvas(self.figure)
@@ -649,8 +661,12 @@ class CryoCanvasWidget(QWidget):
         self.embedding_canvas = FigureCanvas(self.embedding_figure)
         layout.addWidget(self.embedding_canvas)
 
-
         self.setLayout(layout)
+
+    def on_thickness_changed(self, value):
+        # This method will be called whenever the slider value changes.
+        # Emit a signal or directly call a method in CryoCanvasApp to update the viewer thickness
+        self.app.viewer.dims.thickness = (value, ) * self.app.viewer.dims.ndim
 
 
 # Initialize your application
