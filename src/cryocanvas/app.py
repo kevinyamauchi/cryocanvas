@@ -28,6 +28,15 @@ from matplotlib.backends.backend_qt5agg import (
 )
 from matplotlib.figure import Figure
 from matplotlib.colors import to_rgba
+from napari_tomotwin.load_umap import LoadUmapTool
+import pandas as pd
+from magicgui.tqdm import tqdm
+from napari.qt.threading import thread_worker
+from sklearn.discriminant_analysis import LinearDiscriminantAnalysis as LDA
+from sklearn.cross_decomposition import PLSRegression
+from matplotlib.widgets import LassoSelector
+from matplotlib.path import Path
+from threading import Thread
 
 # from https://github.com/napari/napari/issues/4384
 
@@ -45,6 +54,7 @@ class CryoCanvasApp:
         self._init_logging()
         self._add_widget()
         self.model = None
+        self.create_embedding_plot()
 
     def get_labels_colormap(self):
         """Return a colormap for distinct label colors based on:
@@ -108,6 +118,7 @@ class CryoCanvasApp:
         # Set defaults for layers
         self.get_painting_layer().brush_size = 2
         self.get_painting_layer().n_edit_dimensions = 3
+
 
     def _init_logging(self):
         self.logger = logging.getLogger("cryocanvas")
@@ -180,6 +191,9 @@ class CryoCanvasApp:
 
         # Update class distribution charts
         self.update_class_distribution_charts()
+
+        # Update projection
+        self.create_embedding_plot()
 
     def threaded_on_data_change(
         self,
@@ -285,6 +299,8 @@ class CryoCanvasApp:
                 f"prediction {prediction.shape} prediction layer {self.get_prediction_layer().data.shape} prediction {np.transpose(prediction).shape} features {prediction_features.shape}"
             )
 
+            # self.compute_and_visualize_2d_projection(prediction_features)
+            
             self.get_prediction_layer().data = np.transpose(prediction)
 
     def update_model(self, labels, features, model_type):
@@ -408,6 +424,7 @@ class CryoCanvasApp:
             # Horizontal bar plots for painting and prediction layers
             ax1.barh(valid_painting_labels, valid_painting_percentages, color=[class_color_mapping.get(x, "#FFFFFF") for x in valid_painting_labels], edgecolor="white")
             ax1.set_title("Painting Layer")
+
             ax1.set_xlabel("% of Image")
             ax1.set_yticks(valid_painting_labels)
             ax1.invert_yaxis()  # Invert y-axis to have labels in ascending order from top to bottom
@@ -466,7 +483,107 @@ class CryoCanvasApp:
         # Refresh the painting layer to show the updated background
         self.get_painting_layer().refresh()
 
+    def create_embedding_plot(self):
+        self.widget.embedding_figure.clear()  # Clear existing plot
 
+        # Flatten the feature data and labels to match shapes
+        features = self.feature_data_tomotwin[:].reshape(-1, self.feature_data_tomotwin.shape[-1])
+        labels = self.painting_data[:].flatten()
+
+        # Filter out entries where the label is 0
+        filtered_features = features[labels > 0]
+        filtered_labels = labels[labels > 0]
+
+        # Initialize PLSRegression with 2 components for 2D projection
+        self.pls = PLSRegression(n_components=2)
+        self.pls_embedding = self.pls.fit_transform(filtered_features, filtered_labels)[0]
+
+
+        # Original image coordinates
+        z_dim, y_dim, x_dim, _ = self.feature_data_tomotwin.shape
+        X, Y, Z = np.meshgrid(np.arange(x_dim), np.arange(y_dim), np.arange(z_dim), indexing='ij')
+        original_coords = np.vstack([X.ravel(), Y.ravel(), Z.ravel()]).T
+        # Filter coordinates using the same mask applied to the features
+        self.filtered_coords = original_coords[labels > 0]
+        
+        
+        class_color_mapping = {
+            label: "#{:02x}{:02x}{:02x}".format(
+                int(rgba[0] * 255), int(rgba[1] * 255), int(rgba[2] * 255)
+            ) for label, rgba in self.get_labels_colormap().items()
+        }
+
+        # Convert filtered_labels to a list of colors for each point
+        point_colors = [class_color_mapping[label] for label in filtered_labels]
+
+        # Custom style adjustments for dark theme
+        napari_charcoal_hex = "#262930"
+        plt.style.use('dark_background')
+        self.widget.embedding_figure.patch.set_facecolor(napari_charcoal_hex)
+
+        ax = self.widget.embedding_figure.add_subplot(111, facecolor=napari_charcoal_hex)
+        scatter = ax.scatter(self.pls_embedding[:, 0], self.pls_embedding[:, 1], s=0.1, c=point_colors, alpha=1.0)
+
+        plt.setp(ax, xticks=[], yticks=[])
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        ax.spines['left'].set_color('white')
+        ax.spines['bottom'].set_color('white')
+
+        plt.title('PLS-DA Embedding Using Labels from Painting Layer', color='white')
+
+        def onclick(event):
+            if event.inaxes == ax:
+                clicked_embedding = np.array([event.xdata, event.ydata])
+                distances = np.sqrt(np.sum((self.pls_embedding - clicked_embedding) ** 2, axis=1))
+                nearest_point_index = np.argmin(distances)
+                nearest_image_coordinates = self.filtered_coords[nearest_point_index]
+                print(f"Clicked embedding coordinates: ({event.xdata}, {event.ydata}), Image space coordinate: {nearest_image_coordinates}")
+
+        def onselect(verts):
+            path = Path(verts)
+            self.update_painting_layer(path)
+
+        # Create the LassoSelector
+        self.lasso = LassoSelector(ax, onselect, useblit=True)
+
+        cid = self.widget.embedding_canvas.mpl_connect('button_press_event', onclick)
+        self.widget.embedding_canvas.draw()
+
+    def update_painting_layer(self, path):
+        # Fetch the currently active label from the painting layer
+        target_label = self.get_painting_layer().selected_label
+        # Start a new thread to update the painting layer with the current target label
+        update_thread = Thread(target=self.paint_thread, args=(path, target_label,))
+        update_thread.start()
+
+    def paint_thread(self, lasso_path, target_label):
+        # Ensure we're working with the full feature dataset
+        all_features_flat = self.feature_data_tomotwin[:].reshape(-1, self.feature_data_tomotwin.shape[-1])
+
+        # Use the PLS model to project these features into the embedding space
+        all_embeddings = self.pls.transform(all_features_flat)
+
+        # Determine which points fall within the lasso path
+        contained = np.array([lasso_path.contains_point(point) for point in all_embeddings[:, :2]])
+
+        # The shape of the original image data, to map flat indices back to spatial coordinates
+        shape = self.feature_data_tomotwin.shape[:-1]
+
+        # Iterate over all points to update the painting data where contained is True
+        for idx in np.where(contained)[0]:
+            # Map flat index back to spatial coordinates
+            z, y, x = np.unravel_index(idx, shape)
+            # Update the painting data
+            self.painting_data[z, y, x] = target_label
+
+        print(f"Painted {np.sum(contained)} pixels with label {target_label}")
+        
+        # This call is necessary to update the painting layer in the main thread
+        ensure_main_thread(self.get_painting_layer().refresh)()
+
+        
+        
 class CryoCanvasWidget(QWidget):
     def __init__(self, parent=None):
         super(CryoCanvasWidget, self).__init__(parent)
@@ -527,6 +644,11 @@ class CryoCanvasWidget(QWidget):
         self.figure = Figure()
         self.canvas = FigureCanvas(self.figure)
         layout.addWidget(self.canvas)
+
+        self.embedding_figure = Figure()
+        self.embedding_canvas = FigureCanvas(self.embedding_figure)
+        layout.addWidget(self.embedding_canvas)
+
 
         self.setLayout(layout)
 
