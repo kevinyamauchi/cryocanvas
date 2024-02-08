@@ -29,17 +29,12 @@ from matplotlib.backends.backend_qt5agg import (
     FigureCanvasQTAgg as FigureCanvas,
 )
 from matplotlib.figure import Figure
-from matplotlib.colors import to_rgba
-from napari_tomotwin.load_umap import LoadUmapTool
-import pandas as pd
 from magicgui.tqdm import tqdm
 from napari.qt.threading import thread_worker
-from sklearn.discriminant_analysis import LinearDiscriminantAnalysis as LDA
 from sklearn.cross_decomposition import PLSRegression
 from matplotlib.widgets import LassoSelector
 from matplotlib.path import Path
 from threading import Thread
-from magicgui import magicgui
 
 # from https://github.com/napari/napari/issues/4384
 
