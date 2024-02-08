@@ -363,42 +363,33 @@ class CryoCanvasApp:
         return np.transpose(prediction)
 
     def update_class_distribution_charts(self):
-        # Example class to color mapping, this needs to match your label colors
+        total_pixels = np.product(self.painting_data.shape)
+
+        painting_labels, painting_counts = np.unique(self.painting_data[:], return_counts=True)
+        prediction_labels, prediction_counts = np.unique(self.get_prediction_layer().data[:], return_counts=True)
+
+        # Calculate percentages instead of raw counts
+        painting_percentages = (painting_counts / total_pixels) * 100
+        prediction_percentages = (prediction_counts / total_pixels) * 100
+
+        # Separate subplot for class 0 in painting layer
+        unpainted_percentage = painting_percentages[painting_labels == 0] if 0 in painting_labels else [0]
+
+        # Exclude class 0 for prediction layer
+        valid_prediction_indices = prediction_labels > 0
+        valid_prediction_labels = prediction_labels[valid_prediction_indices]
+        valid_prediction_percentages = prediction_percentages[valid_prediction_indices]
+
+        # Exclude class 0 for painting layer percentages
+        valid_painting_indices = painting_labels > 0
+        valid_painting_labels = painting_labels[valid_painting_indices]
+        valid_painting_percentages = painting_percentages[valid_painting_indices]
+
+        # Example class to color mapping
         class_color_mapping = {
-            label: "#{:02x}{:02x}{:02x}".format(
-                int(rgba[0] * 255), int(rgba[1] * 255), int(rgba[2] * 255)
-            )
+            label: "#{:02x}{:02x}{:02x}".format(int(rgba[0] * 255), int(rgba[1] * 255), int(rgba[2] * 255))
             for label, rgba in self.get_labels_colormap().items()
         }
-
-        painting_labels, painting_counts = np.unique(
-            self.painting_data[:], return_counts=True
-        )
-        prediction_labels, prediction_counts = np.unique(
-            self.get_prediction_layer().data[:], return_counts=True
-        )
-
-        # Include class 0 for prediction if it's missing
-        if 0 not in prediction_labels:
-            prediction_labels = np.insert(prediction_labels, 0, 0)
-            prediction_counts = np.insert(prediction_counts, 0, 0)
-
-        # Align classes between painting and prediction
-        all_labels = np.union1d(painting_labels, prediction_labels)
-
-        # Get counts for all classes, filling in zeros where a class doesn't exist
-        aligned_painting_counts = [
-            painting_counts[np.where(painting_labels == label)][0]
-            if label in painting_labels
-            else 0
-            for label in all_labels
-        ]
-        aligned_prediction_counts = [
-            prediction_counts[np.where(prediction_labels == label)][0]
-            if label in prediction_labels
-            else 0
-            for label in all_labels
-        ]
 
         self.widget.figure.clear()
 
@@ -418,35 +409,31 @@ class CryoCanvasApp:
         }
 
         with plt.style.context(dark_background_style):
-            ax1 = self.widget.figure.add_subplot(211)
-            ax2 = self.widget.figure.add_subplot(212)
+            # Create subplots with adjusted heights
+            gs = self.widget.figure.add_gridspec(3, 1, height_ratios=[1, 4, 4])
+            ax0 = self.widget.figure.add_subplot(gs[0])
+            ax1 = self.widget.figure.add_subplot(gs[1])
+            ax2 = self.widget.figure.add_subplot(gs[2])
 
-            # Plot the bars with the correct color mapping
-            ax1.bar(
-                all_labels,
-                aligned_painting_counts,
-                color=[
-                    class_color_mapping.get(x, "#FFFFFF") for x in all_labels
-                ],
-                edgecolor="white",
-            )
+            # Plot for unpainted pixels
+            ax0.barh(0, unpainted_percentage, color="#AAAAAA", edgecolor="white")
+            ax0.set_title("Unpainted Pixels")
+            ax0.set_xlabel("% of Image")
+            ax0.set_yticks([])  # Hide y-ticks for simplicity
+
+            # Horizontal bar plots for painting and prediction layers
+            ax1.barh(valid_painting_labels, valid_painting_percentages, color=[class_color_mapping.get(x, "#FFFFFF") for x in valid_painting_labels], edgecolor="white")
             ax1.set_title("Painting Layer")
-            ax1.set_xlabel("Class")
-            ax1.set_ylabel("Count")
-            ax1.set_xticks(all_labels)
 
-            ax2.bar(
-                all_labels,
-                aligned_prediction_counts,
-                color=[
-                    class_color_mapping.get(x, "#FFFFFF") for x in all_labels
-                ],
-                edgecolor="white",
-            )
+            ax1.set_xlabel("% of Image")
+            ax1.set_yticks(valid_painting_labels)
+            ax1.invert_yaxis()  # Invert y-axis to have labels in ascending order from top to bottom
+
+            ax2.barh(valid_prediction_labels, valid_prediction_percentages, color=[class_color_mapping.get(x, "#FFFFFF") for x in valid_prediction_labels], edgecolor="white")
             ax2.set_title("Prediction Layer")
-            ax2.set_xlabel("Class")
-            ax2.set_ylabel("Count")
-            ax2.set_xticks(all_labels)
+            ax2.set_xlabel("% of Image")
+            ax2.set_yticks(valid_prediction_labels)
+            ax2.invert_yaxis()
 
         # Automatically adjust subplot params so that the subplot(s) fits into the figure area
         self.widget.figure.tight_layout(pad=3.0)
@@ -456,6 +443,7 @@ class CryoCanvasApp:
 
         self.widget.canvas.draw()
 
+    
     def estimate_background(self):
         # Start the background painting in a new thread
         threading.Thread(target=self._paint_background_thread).start()
