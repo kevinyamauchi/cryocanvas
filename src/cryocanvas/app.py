@@ -443,7 +443,7 @@ class CryoCanvasApp:
             ax1.set_ylabel("Painting", labelpad=20, fontsize=12, rotation=0, ha='right', va='center')
             ax2.set_ylabel("Prediction", labelpad=20, fontsize=12, rotation=0, ha='right', va='center')
 
-            self.widget.figure.subplots_adjust(left=0.23, right=0.9, top=0.95, bottom=0.05)
+            self.widget.figure.subplots_adjust(left=0.33, right=0.9, top=0.95, bottom=0.05)
 
         # Adjust the left margin to make space for the y-axis labels (titles)
         plt.subplots_adjust(left=0.25)
