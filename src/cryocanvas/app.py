@@ -12,8 +12,10 @@ from qtpy.QtWidgets import (
     QGroupBox,
     QPushButton,
     QSlider,
+    QLineEdit,
 )
 from qtpy.QtCore import Qt
+from qtpy.QtGui import QColor, QPainter, QPixmap
 from skimage.feature import multiscale_basic_features
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.utils.class_weight import compute_class_weight
@@ -190,6 +192,8 @@ class CryoCanvasApp:
 
         # Update projection
         self.create_embedding_plot()
+
+        self.widget.setupLegend()
 
     def threaded_on_data_change(
         self,
@@ -590,7 +594,7 @@ class CryoCanvasWidget(QWidget):
         self.initUI()
 
     def initUI(self):
-        layout = QVBoxLayout()
+        self.layout = QVBoxLayout()
 
         # Dropdown for selecting the model
         model_label = QLabel("Select Model")
@@ -599,7 +603,7 @@ class CryoCanvasWidget(QWidget):
         model_layout = QHBoxLayout()
         model_layout.addWidget(model_label)
         model_layout.addWidget(self.model_dropdown)
-        layout.addLayout(model_layout)
+        self.layout.addLayout(model_layout)
 
         # Boolean options for features
         self.basic_checkbox = QCheckBox("Basic")
@@ -612,11 +616,11 @@ class CryoCanvasWidget(QWidget):
         features_layout.addWidget(self.basic_checkbox)
         features_layout.addWidget(self.embedding_checkbox)
         features_group.setLayout(features_layout)
-        layout.addWidget(features_group)
+        self.layout.addWidget(features_group)
 
         # Button for estimating background
         self.estimate_background_button = QPushButton("Estimate Background")
-        layout.addWidget(self.estimate_background_button)
+        self.layout.addWidget(self.estimate_background_button)
 
         # Dropdown for data selection
         data_label = QLabel("Select Data for Model Fitting")
@@ -628,17 +632,17 @@ class CryoCanvasWidget(QWidget):
         data_layout = QHBoxLayout()
         data_layout.addWidget(data_label)
         data_layout.addWidget(self.data_dropdown)
-        layout.addLayout(data_layout)
+        self.layout.addLayout(data_layout)
 
         # Checkbox for live model fitting
         self.live_fit_checkbox = QCheckBox("Live Model Fitting")
         self.live_fit_checkbox.setChecked(True)
-        layout.addWidget(self.live_fit_checkbox)
+        self.layout.addWidget(self.live_fit_checkbox)
 
         # Checkbox for live prediction
         self.live_pred_checkbox = QCheckBox("Live Prediction")
         self.live_pred_checkbox.setChecked(True)
-        layout.addWidget(self.live_pred_checkbox)
+        self.layout.addWidget(self.live_pred_checkbox)
 
         # Slider for adjusting thickness
         thickness_label = QLabel("Adjust Slice Thickness")
@@ -649,7 +653,7 @@ class CryoCanvasWidget(QWidget):
         thickness_layout = QHBoxLayout()
         thickness_layout.addWidget(thickness_label)
         thickness_layout.addWidget(self.thickness_slider)
-        layout.addLayout(thickness_layout)
+        self.layout.addLayout(thickness_layout)
         self.thickness_slider.setToolTip("Averages projection over the slice. For thicker slices update contrast limits on the image layer")
 
         # Connect the slider to a method to update thickness
@@ -658,14 +662,77 @@ class CryoCanvasWidget(QWidget):
         # Add class distribution plot
         self.figure = Figure()
         self.canvas = FigureCanvas(self.figure)
-        layout.addWidget(self.canvas)
+        self.layout.addWidget(self.canvas)
 
+        embedding_label = QLabel("Painting Embedding (Draw to label in embedding)")
+        self.layout.addWidget(embedding_label)
+        
         self.embedding_figure = Figure()
         self.embedding_canvas = FigureCanvas(self.embedding_figure)
-        layout.addWidget(self.embedding_canvas)
+        self.layout.addWidget(self.embedding_canvas)
 
-        self.setLayout(layout)
+        self.setupLegend()
 
+        self.setLayout(self.layout)
+
+    def setupLegend(self):
+        if hasattr(self, 'legend_group'):
+            self.legend_layout.deleteLater()
+            self.legend_group.deleteLater()
+        
+        painting_layer = self.app.get_painting_layer()
+        self.legend_layout = QVBoxLayout()
+        self.legend_group = QGroupBox("Class Labels Legend")
+
+        active_labels = np.unique(painting_layer.data)
+        
+        for label_id in active_labels:
+            color = painting_layer.color.get(label_id)
+            # Create a QLabel for color swatch
+            color_swatch = QLabel()
+            pixmap = QPixmap(16, 16)
+
+            if color is None:
+                pixmap = self.createCheckerboardPattern()
+            else:
+                pixmap.fill(QColor(*[int(c * 255) for c in color]))
+                
+            color_swatch.setPixmap(pixmap)
+
+            # Editable text box for class label
+            label_edit = QLineEdit(f"Class {label_id if label_id is not None else 0}")
+
+            # Layout for each legend entry
+            entry_layout = QHBoxLayout()
+            entry_layout.addWidget(color_swatch)
+            entry_layout.addWidget(label_edit)
+            self.legend_layout.addLayout(entry_layout)
+        
+        self.legend_group.setLayout(self.legend_layout)
+        self.layout.addWidget(self.legend_group)
+
+    def createCheckerboardPattern(self):
+        """Creates a QPixmap with a checkerboard pattern."""
+        pixmap = QPixmap(16, 16)
+        pixmap.fill(Qt.white)
+        painter = QPainter(pixmap)
+        painter.setPen(Qt.NoPen)
+        
+        # Define the colors for the checkerboard squares
+        color1 = Qt.lightGray
+        color2 = Qt.darkGray
+        size = 4
+
+        for x in range(0, pixmap.width(), size):
+            for y in range(0, pixmap.height(), size):
+                if (x + y) // size % 2 == 0:
+                    painter.fillRect(x, y, size, size, color1)
+                else:
+                    painter.fillRect(x, y, size, size, color2)
+
+        painter.end()
+        return pixmap
+        
     def on_thickness_changed(self, value):
         # This method will be called whenever the slider value changes.
         # Emit a signal or directly call a method in CryoCanvasApp to update the viewer thickness
