@@ -420,23 +420,33 @@ class CryoCanvasApp:
 
             # Plot for unpainted pixels
             ax0.barh(0, unpainted_percentage, color="#AAAAAA", edgecolor="white")
-            ax0.set_title("Unpainted Pixels")
+            # ax0.set_title("Unpainted", loc='left')
             ax0.set_xlabel("% of Image")
             ax0.set_yticks([])  # Hide y-ticks for simplicity
 
             # Horizontal bar plots for painting and prediction layers
             ax1.barh(valid_painting_labels, valid_painting_percentages, color=[class_color_mapping.get(x, "#FFFFFF") for x in valid_painting_labels], edgecolor="white")
-            ax1.set_title("Painting Layer")
+            # ax1.set_title("Painting", loc='left')
 
             ax1.set_xlabel("% of Image")
             ax1.set_yticks(valid_painting_labels)
             ax1.invert_yaxis()  # Invert y-axis to have labels in ascending order from top to bottom
 
             ax2.barh(valid_prediction_labels, valid_prediction_percentages, color=[class_color_mapping.get(x, "#FFFFFF") for x in valid_prediction_labels], edgecolor="white")
-            ax2.set_title("Prediction Layer")
+            # ax2.set_title("Prediction", loc='left')
             ax2.set_xlabel("% of Image")
             ax2.set_yticks(valid_prediction_labels)
             ax2.invert_yaxis()
+
+            # Use set_ylabel to position the titles outside and to the left of the y-axis labels
+            ax0.set_ylabel("Unpainted", labelpad=20, fontsize=12, rotation=0, ha='right', va='center')
+            ax1.set_ylabel("Painting", labelpad=20, fontsize=12, rotation=0, ha='right', va='center')
+            ax2.set_ylabel("Prediction", labelpad=20, fontsize=12, rotation=0, ha='right', va='center')
+
+            self.widget.figure.subplots_adjust(left=0.23, right=0.9, top=0.95, bottom=0.05)
+
+        # Adjust the left margin to make space for the y-axis labels (titles)
+        plt.subplots_adjust(left=0.25)
 
         # Automatically adjust subplot params so that the subplot(s) fits into the figure area
         self.widget.figure.tight_layout(pad=3.0)
@@ -605,18 +615,14 @@ class CryoCanvasWidget(QWidget):
         model_layout.addWidget(self.model_dropdown)
         self.layout.addLayout(model_layout)
 
-        # Boolean options for features
+        # Boolean options for features directly added to layout
         self.basic_checkbox = QCheckBox("Basic")
         self.basic_checkbox.setChecked(True)
+        self.layout.addWidget(self.basic_checkbox)
+
         self.embedding_checkbox = QCheckBox("Embedding")
         self.embedding_checkbox.setChecked(True)
-
-        features_group = QGroupBox("Features")
-        features_layout = QVBoxLayout()
-        features_layout.addWidget(self.basic_checkbox)
-        features_layout.addWidget(self.embedding_checkbox)
-        features_group.setLayout(features_layout)
-        self.layout.addWidget(features_group)
+        self.layout.addWidget(self.embedding_checkbox)
 
         # Button for estimating background
         self.estimate_background_button = QPushButton("Estimate Background")
