@@ -604,87 +604,98 @@ class CryoCanvasWidget(QWidget):
         self.initUI()
 
     def initUI(self):
-        self.layout = QVBoxLayout()
+        main_layout = QVBoxLayout()
 
-        # Dropdown for selecting the model
+        self.legend_placeholder_index = 0
+
+        # Settings Group
+        settings_group = QGroupBox("Settings")
+        settings_layout = QVBoxLayout()
+        
+        model_layout = QHBoxLayout()
         model_label = QLabel("Select Model")
         self.model_dropdown = QComboBox()
         self.model_dropdown.addItems(["Random Forest", "XGBoost"])
-        model_layout = QHBoxLayout()
         model_layout.addWidget(model_label)
         model_layout.addWidget(self.model_dropdown)
-        self.layout.addLayout(model_layout)
-
-        # Boolean options for features directly added to layout
+        settings_layout.addLayout(model_layout)
+        
         self.basic_checkbox = QCheckBox("Basic")
         self.basic_checkbox.setChecked(True)
-        self.layout.addWidget(self.basic_checkbox)
+        settings_layout.addWidget(self.basic_checkbox)
 
         self.embedding_checkbox = QCheckBox("Embedding")
         self.embedding_checkbox.setChecked(True)
-        self.layout.addWidget(self.embedding_checkbox)
+        settings_layout.addWidget(self.embedding_checkbox)
 
-        # Button for estimating background
-        self.estimate_background_button = QPushButton("Estimate Background")
-        self.layout.addWidget(self.estimate_background_button)
-
-        # Dropdown for data selection
-        data_label = QLabel("Select Data for Model Fitting")
-        self.data_dropdown = QComboBox()
-        self.data_dropdown.addItems(
-            ["Current Displayed Region", "Whole Image"]
-        )
-        self.data_dropdown.setCurrentText("Whole Image")
-        data_layout = QHBoxLayout()
-        data_layout.addWidget(data_label)
-        data_layout.addWidget(self.data_dropdown)
-        self.layout.addLayout(data_layout)
-
-        # Checkbox for live model fitting
-        self.live_fit_checkbox = QCheckBox("Live Model Fitting")
-        self.live_fit_checkbox.setChecked(True)
-        self.layout.addWidget(self.live_fit_checkbox)
-
-        # Checkbox for live prediction
-        self.live_pred_checkbox = QCheckBox("Live Prediction")
-        self.live_pred_checkbox.setChecked(True)
-        self.layout.addWidget(self.live_pred_checkbox)
-
-        # Slider for adjusting thickness
+        thickness_layout = QHBoxLayout()
         thickness_label = QLabel("Adjust Slice Thickness")
         self.thickness_slider = QSlider(Qt.Horizontal)
         self.thickness_slider.setMinimum(0)
         self.thickness_slider.setMaximum(50)
-        self.thickness_slider.setValue(10)        
-        thickness_layout = QHBoxLayout()
+        self.thickness_slider.setValue(10)
         thickness_layout.addWidget(thickness_label)
         thickness_layout.addWidget(self.thickness_slider)
-        self.layout.addLayout(thickness_layout)
-        self.thickness_slider.setToolTip("Averages projection over the slice. For thicker slices update contrast limits on the image layer")
+        settings_layout.addLayout(thickness_layout)
 
-        # Connect the slider to a method to update thickness
-        self.thickness_slider.valueChanged.connect(self.on_thickness_changed)
+        settings_group.setLayout(settings_layout)
+        main_layout.addWidget(settings_group)
+
+        # Controls Group
+        controls_group = QGroupBox("Controls")
+        controls_layout = QVBoxLayout()
         
-        # Add class distribution plot
-        self.figure = Figure()
-        self.canvas = FigureCanvas(self.figure)
-        self.layout.addWidget(self.canvas)
-
-        embedding_label = QLabel("Painting Embedding (Draw to label in embedding)")
-        self.layout.addWidget(embedding_label)
+        data_layout = QHBoxLayout()
+        data_label = QLabel("Select Data for Model Fitting")
+        self.data_dropdown = QComboBox()
+        self.data_dropdown.addItems(["Current Displayed Region", "Whole Image"])
+        data_layout.addWidget(data_label)
+        data_layout.addWidget(self.data_dropdown)
+        controls_layout.addLayout(data_layout)
         
-        self.embedding_figure = Figure()
-        self.embedding_canvas = FigureCanvas(self.embedding_figure)
-        self.layout.addWidget(self.embedding_canvas)
+        self.live_fit_checkbox = QCheckBox("Live Model Fitting")
+        self.live_fit_checkbox.setChecked(True)
+        controls_layout.addWidget(self.live_fit_checkbox)
 
+        self.live_pred_checkbox = QCheckBox("Live Prediction")
+        self.live_pred_checkbox.setChecked(True)
+        controls_layout.addWidget(self.live_pred_checkbox)
+
+        self.estimate_background_button = QPushButton("Estimate Background")
+        controls_layout.addWidget(self.estimate_background_button)
+
+        controls_group.setLayout(controls_layout)
+        main_layout.addWidget(controls_group)
+
+        # Stats Summary Group
+        stats_summary_group = QGroupBox("Stats Summary")
+        self.stats_summary_layout = QVBoxLayout()
+
+        self.stats_summary_layout.insertStretch(self.legend_placeholder_index)
+        
         self.setupLegend()
 
-        self.setLayout(self.layout)
+        self.figure = Figure()
+        self.canvas = FigureCanvas(self.figure)
+        self.stats_summary_layout.addWidget(self.canvas)
+
+        embedding_label = QLabel("Painting Embedding (Draw to label in embedding)")
+        self.stats_summary_layout.addWidget(embedding_label)
+
+        self.embedding_figure = Figure()
+        self.embedding_canvas = FigureCanvas(self.embedding_figure)
+        self.stats_summary_layout.addWidget(self.embedding_canvas)
+
+        stats_summary_group.setLayout(self.stats_summary_layout)
+        main_layout.addWidget(stats_summary_group)
+
+        self.setLayout(main_layout)
 
     def setupLegend(self):
         if hasattr(self, 'legend_group'):
-            self.legend_layout.deleteLater()
-            self.legend_group.deleteLater()
+            # Remove the old legend widget and its layout if it exists
+            self.stats_summary_layout.takeAt(self.legend_placeholder_index).widget().deleteLater()
+
         
         painting_layer = self.app.get_painting_layer()
         self.legend_layout = QVBoxLayout()
@@ -715,7 +726,7 @@ class CryoCanvasWidget(QWidget):
             self.legend_layout.addLayout(entry_layout)
         
         self.legend_group.setLayout(self.legend_layout)
-        self.layout.addWidget(self.legend_group)
+        self.stats_summary_layout.insertWidget(self.legend_placeholder_index, self.legend_group)
 
     def createCheckerboardPattern(self):
         """Creates a QPixmap with a checkerboard pattern."""
@@ -740,8 +751,6 @@ class CryoCanvasWidget(QWidget):
         return pixmap
         
     def on_thickness_changed(self, value):
-        # This method will be called whenever the slider value changes.
-        # Emit a signal or directly call a method in CryoCanvasApp to update the viewer thickness
         self.app.viewer.dims.thickness = (value, ) * self.app.viewer.dims.ndim
 
 
