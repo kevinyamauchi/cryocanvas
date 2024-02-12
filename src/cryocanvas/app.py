@@ -277,9 +277,11 @@ class CryoCanvasApp:
             self.logger.info(
                 f"training model with labels {training_labels.shape} features {training_features.shape} unique labels {np.unique(training_labels[:])}"
             )
+            # TODO change this to a thread_worker
             self.model = self.update_model(
                 training_labels, training_features, model_type
             )
+            
 
         if live_prediction and self.model:
             # Update prediction_data
@@ -288,6 +290,7 @@ class CryoCanvasApp:
             else:
                 prediction_features = np.array(self.feature_data_tomotwin)
             # Add 1 becasue of the background label adjustment for the model
+            # TODO change this to a thread_worker
             prediction = self.predict(
                 self.model, prediction_features, model_type
             )
@@ -638,15 +641,16 @@ class CryoCanvasWidget(QWidget):
         layout.addWidget(self.live_pred_checkbox)
 
         # Slider for adjusting thickness
-        thickness_label = QLabel("Adjust Thickness")
+        thickness_label = QLabel("Adjust Slice Thickness")
         self.thickness_slider = QSlider(Qt.Horizontal)
         self.thickness_slider.setMinimum(0)
         self.thickness_slider.setMaximum(50)
-        self.thickness_slider.setValue(10)
+        self.thickness_slider.setValue(10)        
         thickness_layout = QHBoxLayout()
         thickness_layout.addWidget(thickness_label)
         thickness_layout.addWidget(self.thickness_slider)
         layout.addLayout(thickness_layout)
+        self.thickness_slider.setToolTip("Averages projection over the slice. For thicker slices update contrast limits on the image layer")
 
         # Connect the slider to a method to update thickness
         self.thickness_slider.valueChanged.connect(self.on_thickness_changed)
@@ -670,6 +674,6 @@ class CryoCanvasWidget(QWidget):
 
 # Initialize your application
 if __name__ == "__main__":
-    zarr_path = "/Users/kharrington/Data/CryoCanvas/cryocanvas_crop_006.zarr"
+    zarr_path = "/Users/kharrington/Data/CryoCanvas/cryocanvas_crop_007.zarr"
     app = CryoCanvasApp(zarr_path)
     # napari.run()
