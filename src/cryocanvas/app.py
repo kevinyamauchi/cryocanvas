@@ -12,8 +12,10 @@ from qtpy.QtWidgets import (
     QGroupBox,
     QPushButton,
     QSlider,
+    QLineEdit,
 )
 from qtpy.QtCore import Qt
+from qtpy.QtGui import QColor, QPainter, QPixmap
 from skimage.feature import multiscale_basic_features
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.utils.class_weight import compute_class_weight
@@ -191,6 +193,8 @@ class CryoCanvasApp:
         # Update projection
         self.create_embedding_plot()
 
+        self.widget.setupLegend()
+
     def threaded_on_data_change(
         self,
         event,
@@ -277,9 +281,11 @@ class CryoCanvasApp:
             self.logger.info(
                 f"training model with labels {training_labels.shape} features {training_features.shape} unique labels {np.unique(training_labels[:])}"
             )
+            # TODO change this to a thread_worker
             self.model = self.update_model(
                 training_labels, training_features, model_type
             )
+            
 
         if live_prediction and self.model:
             # Update prediction_data
@@ -288,6 +294,7 @@ class CryoCanvasApp:
             else:
                 prediction_features = np.array(self.feature_data_tomotwin)
             # Add 1 becasue of the background label adjustment for the model
+            # TODO change this to a thread_worker
             prediction = self.predict(
                 self.model, prediction_features, model_type
             )
@@ -413,23 +420,33 @@ class CryoCanvasApp:
 
             # Plot for unpainted pixels
             ax0.barh(0, unpainted_percentage, color="#AAAAAA", edgecolor="white")
-            ax0.set_title("Unpainted Pixels")
+            # ax0.set_title("Unpainted", loc='left')
             ax0.set_xlabel("% of Image")
             ax0.set_yticks([])  # Hide y-ticks for simplicity
 
             # Horizontal bar plots for painting and prediction layers
             ax1.barh(valid_painting_labels, valid_painting_percentages, color=[class_color_mapping.get(x, "#FFFFFF") for x in valid_painting_labels], edgecolor="white")
-            ax1.set_title("Painting Layer")
+            # ax1.set_title("Painting", loc='left')
 
             ax1.set_xlabel("% of Image")
             ax1.set_yticks(valid_painting_labels)
             ax1.invert_yaxis()  # Invert y-axis to have labels in ascending order from top to bottom
 
             ax2.barh(valid_prediction_labels, valid_prediction_percentages, color=[class_color_mapping.get(x, "#FFFFFF") for x in valid_prediction_labels], edgecolor="white")
-            ax2.set_title("Prediction Layer")
+            # ax2.set_title("Prediction", loc='left')
             ax2.set_xlabel("% of Image")
             ax2.set_yticks(valid_prediction_labels)
             ax2.invert_yaxis()
+
+            # Use set_ylabel to position the titles outside and to the left of the y-axis labels
+            ax0.set_ylabel("Unpainted", labelpad=20, fontsize=12, rotation=0, ha='right', va='center')
+            ax1.set_ylabel("Painting", labelpad=20, fontsize=12, rotation=0, ha='right', va='center')
+            ax2.set_ylabel("Prediction", labelpad=20, fontsize=12, rotation=0, ha='right', va='center')
+
+            self.widget.figure.subplots_adjust(left=0.33, right=0.9, top=0.95, bottom=0.05)
+
+        # Adjust the left margin to make space for the y-axis labels (titles)
+        plt.subplots_adjust(left=0.25)
 
         # Automatically adjust subplot params so that the subplot(s) fits into the figure area
         self.widget.figure.tight_layout(pad=3.0)
@@ -587,89 +604,158 @@ class CryoCanvasWidget(QWidget):
         self.initUI()
 
     def initUI(self):
-        layout = QVBoxLayout()
+        main_layout = QVBoxLayout()
 
-        # Dropdown for selecting the model
+        self.legend_placeholder_index = 0
+
+        # Settings Group
+        settings_group = QGroupBox("Settings")
+        settings_layout = QVBoxLayout()
+        
+        model_layout = QHBoxLayout()
         model_label = QLabel("Select Model")
         self.model_dropdown = QComboBox()
         self.model_dropdown.addItems(["Random Forest", "XGBoost"])
-        model_layout = QHBoxLayout()
         model_layout.addWidget(model_label)
         model_layout.addWidget(self.model_dropdown)
-        layout.addLayout(model_layout)
-
-        # Boolean options for features
+        settings_layout.addLayout(model_layout)
+        
         self.basic_checkbox = QCheckBox("Basic")
         self.basic_checkbox.setChecked(True)
+        settings_layout.addWidget(self.basic_checkbox)
+
         self.embedding_checkbox = QCheckBox("Embedding")
         self.embedding_checkbox.setChecked(True)
+        settings_layout.addWidget(self.embedding_checkbox)
 
-        features_group = QGroupBox("Features")
-        features_layout = QVBoxLayout()
-        features_layout.addWidget(self.basic_checkbox)
-        features_layout.addWidget(self.embedding_checkbox)
-        features_group.setLayout(features_layout)
-        layout.addWidget(features_group)
-
-        # Button for estimating background
-        self.estimate_background_button = QPushButton("Estimate Background")
-        layout.addWidget(self.estimate_background_button)
-
-        # Dropdown for data selection
-        data_label = QLabel("Select Data for Model Fitting")
-        self.data_dropdown = QComboBox()
-        self.data_dropdown.addItems(
-            ["Current Displayed Region", "Whole Image"]
-        )
-        self.data_dropdown.setCurrentText("Whole Image")
-        data_layout = QHBoxLayout()
-        data_layout.addWidget(data_label)
-        data_layout.addWidget(self.data_dropdown)
-        layout.addLayout(data_layout)
-
-        # Checkbox for live model fitting
-        self.live_fit_checkbox = QCheckBox("Live Model Fitting")
-        self.live_fit_checkbox.setChecked(True)
-        layout.addWidget(self.live_fit_checkbox)
-
-        # Checkbox for live prediction
-        self.live_pred_checkbox = QCheckBox("Live Prediction")
-        self.live_pred_checkbox.setChecked(True)
-        layout.addWidget(self.live_pred_checkbox)
-
-        # Slider for adjusting thickness
-        thickness_label = QLabel("Adjust Thickness")
+        thickness_layout = QHBoxLayout()
+        thickness_label = QLabel("Adjust Slice Thickness")
         self.thickness_slider = QSlider(Qt.Horizontal)
         self.thickness_slider.setMinimum(0)
         self.thickness_slider.setMaximum(50)
         self.thickness_slider.setValue(10)
-        thickness_layout = QHBoxLayout()
         thickness_layout.addWidget(thickness_label)
         thickness_layout.addWidget(self.thickness_slider)
-        layout.addLayout(thickness_layout)
+        settings_layout.addLayout(thickness_layout)
 
-        # Connect the slider to a method to update thickness
-        self.thickness_slider.valueChanged.connect(self.on_thickness_changed)
+        settings_group.setLayout(settings_layout)
+        main_layout.addWidget(settings_group)
+
+        # Controls Group
+        controls_group = QGroupBox("Controls")
+        controls_layout = QVBoxLayout()
         
-        # Add class distribution plot
+        data_layout = QHBoxLayout()
+        data_label = QLabel("Select Data for Model Fitting")
+        self.data_dropdown = QComboBox()
+        self.data_dropdown.addItems(["Current Displayed Region", "Whole Image"])
+        data_layout.addWidget(data_label)
+        data_layout.addWidget(self.data_dropdown)
+        controls_layout.addLayout(data_layout)
+        
+        self.live_fit_checkbox = QCheckBox("Live Model Fitting")
+        self.live_fit_checkbox.setChecked(True)
+        controls_layout.addWidget(self.live_fit_checkbox)
+
+        self.live_pred_checkbox = QCheckBox("Live Prediction")
+        self.live_pred_checkbox.setChecked(True)
+        controls_layout.addWidget(self.live_pred_checkbox)
+
+        self.estimate_background_button = QPushButton("Estimate Background")
+        controls_layout.addWidget(self.estimate_background_button)
+
+        controls_group.setLayout(controls_layout)
+        main_layout.addWidget(controls_group)
+
+        # Stats Summary Group
+        stats_summary_group = QGroupBox("Stats Summary")
+        self.stats_summary_layout = QVBoxLayout()
+
+        self.stats_summary_layout.insertStretch(self.legend_placeholder_index)
+        
+        self.setupLegend()
+
         self.figure = Figure()
         self.canvas = FigureCanvas(self.figure)
-        layout.addWidget(self.canvas)
+        self.stats_summary_layout.addWidget(self.canvas)
+
+        embedding_label = QLabel("Painting Embedding (Draw to label in embedding)")
+        self.stats_summary_layout.addWidget(embedding_label)
 
         self.embedding_figure = Figure()
         self.embedding_canvas = FigureCanvas(self.embedding_figure)
-        layout.addWidget(self.embedding_canvas)
+        self.stats_summary_layout.addWidget(self.embedding_canvas)
 
-        self.setLayout(layout)
+        stats_summary_group.setLayout(self.stats_summary_layout)
+        main_layout.addWidget(stats_summary_group)
 
+        self.setLayout(main_layout)
+
+    def setupLegend(self):
+        if hasattr(self, 'legend_group'):
+            # Remove the old legend widget and its layout if it exists
+            self.stats_summary_layout.takeAt(self.legend_placeholder_index).widget().deleteLater()
+
+        
+        painting_layer = self.app.get_painting_layer()
+        self.legend_layout = QVBoxLayout()
+        self.legend_group = QGroupBox("Class Labels Legend")
+
+        active_labels = np.unique(painting_layer.data)
+        
+        for label_id in active_labels:
+            color = painting_layer.color.get(label_id)
+            # Create a QLabel for color swatch
+            color_swatch = QLabel()
+            pixmap = QPixmap(16, 16)
+
+            if color is None:
+                pixmap = self.createCheckerboardPattern()
+            else:
+                pixmap.fill(QColor(*[int(c * 255) for c in color]))
+                
+            color_swatch.setPixmap(pixmap)
+
+            # Editable text box for class label
+            label_edit = QLineEdit(f"Class {label_id if label_id is not None else 0}")
+
+            # Layout for each legend entry
+            entry_layout = QHBoxLayout()
+            entry_layout.addWidget(color_swatch)
+            entry_layout.addWidget(label_edit)
+            self.legend_layout.addLayout(entry_layout)
+        
+        self.legend_group.setLayout(self.legend_layout)
+        self.stats_summary_layout.insertWidget(self.legend_placeholder_index, self.legend_group)
+
+    def createCheckerboardPattern(self):
+        """Creates a QPixmap with a checkerboard pattern."""
+        pixmap = QPixmap(16, 16)
+        pixmap.fill(Qt.white)
+        painter = QPainter(pixmap)
+        painter.setPen(Qt.NoPen)
+        
+        # Define the colors for the checkerboard squares
+        color1 = Qt.lightGray
+        color2 = Qt.darkGray
+        size = 4
+
+        for x in range(0, pixmap.width(), size):
+            for y in range(0, pixmap.height(), size):
+                if (x + y) // size % 2 == 0:
+                    painter.fillRect(x, y, size, size, color1)
+                else:
+                    painter.fillRect(x, y, size, size, color2)
+
+        painter.end()
+        return pixmap
+        
     def on_thickness_changed(self, value):
-        # This method will be called whenever the slider value changes.
-        # Emit a signal or directly call a method in CryoCanvasApp to update the viewer thickness
         self.app.viewer.dims.thickness = (value, ) * self.app.viewer.dims.ndim
 
 
 # Initialize your application
 if __name__ == "__main__":
-    zarr_path = "/Users/kharrington/Data/CryoCanvas/cryocanvas_crop_006.zarr"
+    zarr_path = "/Users/kharrington/Data/CryoCanvas/cryocanvas_crop_007.zarr"
     app = CryoCanvasApp(zarr_path)
     # napari.run()
