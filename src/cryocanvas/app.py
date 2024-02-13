@@ -37,6 +37,7 @@ from sklearn.cross_decomposition import PLSRegression
 from matplotlib.widgets import LassoSelector
 from matplotlib.path import Path
 from threading import Thread
+from cryocanvas.utils import get_labels_colormap
 
 # from https://github.com/napari/napari/issues/4384
 
@@ -48,41 +49,27 @@ class CryoCanvasApp:
         self.image_data = self.dataset["crop/original_data"]
         self.feature_data_skimage = self.dataset["features/skimage"]
         self.feature_data_tomotwin = self.dataset["features/tomotwin"]
+        self.data_choice = None
+        self.corner_pixels = None
+        self.model_type = None
+        self.prediction_labels = None
+        self.prediction_counts = None
+        self.painting_labels = None
+        self.painting_counts = None        
         self.viewer = napari.Viewer()
+        self._add_threading_workers()
         self._init_viewer_layers()
         self._init_logging()
         self._add_widget()
         self.model = None
-        self.create_embedding_plot()
+        self.create_embedding_plot()        
 
-    def get_labels_colormap(self):
-        """Return a colormap for distinct label colors based on:
-        Green-Armytage, P., 2010. A colour alphabet and the limits of colour coding. JAIC-Journal of the International Colour Association, 5.
-        """
-        colormap_22 = {
-            0: np.array([0, 0, 0, 0]),  # alpha
-            1: np.array([1, 1, 0, 1]),  # yellow
-            2: np.array([0.5, 0, 0.5, 1]),  # purple
-            3: np.array([1, 0.65, 0, 1]),  # orange
-            4: np.array([0.68, 0.85, 0.9, 1]),  # light blue
-            5: np.array([1, 0, 0, 1]),  # red
-            6: np.array([1, 0.94, 0.8, 1]),  # buff
-            7: np.array([0.5, 0.5, 0.5, 1]),  # grey
-            8: np.array([0, 0.5, 0, 1]),  # green
-            9: np.array([0.8, 0.6, 0.8, 1]),  # purplish pink
-            10: np.array([0, 0, 1, 1]),  # blue
-            11: np.array([1, 0.85, 0.7, 1]),  # yellowish pink
-            12: np.array([0.54, 0.17, 0.89, 1]),  # violet
-            13: np.array([1, 0.85, 0, 1]),  # orange yellow
-            14: np.array([0.65, 0.09, 0.28, 1]),  # purplish red
-            15: np.array([0.68, 0.8, 0.18, 1]),  # greenish yellow
-            16: np.array([0.65, 0.16, 0.16, 1]),  # reddish brown
-            17: np.array([0.5, 0.8, 0, 1]),  # yellow green
-            18: np.array([0.8, 0.6, 0.2, 1]),  # yellowish brown
-            19: np.array([1, 0.27, 0, 1]),  # reddish orange
-            20: np.array([0.5, 0.5, 0.2, 1]),  # olive green
-        }
-        return colormap_22
+    def _add_threading_workers(self):
+        # Model fitting worker
+        self.model_fit_worker = None
+        # Prediction worker
+        self.prediction_worker = None
+        self.background_estimation_worker = None        
 
     def _init_viewer_layers(self):
         self.data_layer = self.viewer.add_image(self.image_data, name="Image", projection_mode='mean')
@@ -98,8 +85,9 @@ class CryoCanvasApp:
             name="Prediction",
             scale=self.data_layer.scale,
             opacity=0.1,
-            color=self.get_labels_colormap(),
+            color=get_labels_colormap(),
         )
+        
         self.painting_data = zarr.open(
             f"{self.zarr_path}/painting",
             mode="a",
@@ -111,8 +99,10 @@ class CryoCanvasApp:
             self.painting_data,
             name="Painting",
             scale=self.data_layer.scale,
-            color=self.get_labels_colormap(),
+            color=get_labels_colormap(),
         )
+
+        self.painting_labels, self.painting_counts = np.unique(self.painting_data[:], return_counts=True)
 
         # Set defaults for layers
         self.get_painting_layer().brush_size = 2
@@ -132,16 +122,15 @@ class CryoCanvasApp:
         self.widget = CryoCanvasWidget(self)        
         self.viewer.window.add_dock_widget(self.widget, name="CryoCanvas")
         self.widget.estimate_background_button.clicked.connect(
-            self.estimate_background
+            self.start_background_estimation
         )
         self._connect_events()
 
     def _connect_events(self):
         # Use a partial function to pass additional arguments to the event handler
         on_data_change_handler = tz.curry(self.on_data_change)(app=self)
+        # self.viewer.camera.events, self.viewer.dims.events,
         for listener in [
-            self.viewer.camera.events,
-            self.viewer.dims.events,
             self.painting_layer.events.paint,
         ]:
             listener.connect(
@@ -150,6 +139,11 @@ class CryoCanvasApp:
                     timeout=1000,
                 )
             )
+
+        # TODO other events:
+        # - paint layer data change triggers live model fit, class distributions, embeddings
+        # - model fit triggers live prediction
+        # - prediction triggers class distributions, embeddings
 
     def get_data_layer(self):
         return self.viewer.layers["Image"]
@@ -161,32 +155,15 @@ class CryoCanvasApp:
         return self.viewer.layers["Painting"]
 
     def on_data_change(self, event, app):
+        self.logger.debug("on_data_change")
         # Define corner_pixels based on the current view or other logic
-        corner_pixels = self.viewer.layers["Image"].corner_pixels
+        self.corner_pixels = self.viewer.layers["Image"].corner_pixels        
 
-        # Start the thread with correct arguments
-        thread = threading.Thread(
-            target=self.threaded_on_data_change,
-            args=(
-                event,
-                corner_pixels,
-                self.viewer.dims.current_step,
-                self.widget.model_dropdown.currentText(),
-                {
-                    "basic": self.widget.basic_checkbox.isChecked(),
-                    "embedding": self.widget.embedding_checkbox.isChecked(),
-                },
-                self.widget.live_fit_checkbox.isChecked(),
-                self.widget.live_pred_checkbox.isChecked(),
-                self.widget.data_dropdown.currentText(),
-            ),
-        )
-        thread.start()
-        thread.join()
-
+        self.painting_labels, self.painting_counts = np.unique(self.painting_data[:], return_counts=True)
+        
         # Ensure the prediction layer visual is updated
         self.get_prediction_layer().refresh()
-
+        
         # Update class distribution charts
         self.update_class_distribution_charts()
 
@@ -195,6 +172,7 @@ class CryoCanvasApp:
 
         self.widget.setupLegend()
 
+    @thread_worker
     def threaded_on_data_change(
         self,
         event,
@@ -207,6 +185,40 @@ class CryoCanvasApp:
         data_choice,
     ):
         self.logger.info(f"Labels data has changed! {event}")
+
+        # Assuming you have a method to prepare features and labels
+        features, labels = self.prepare_data_for_model(data_choice, corner_pixels)
+
+        # Update stats
+        self.painting_labels, self.painting_counts = np.unique(self.painting_data[:], return_counts=True)
+
+        if live_fit:
+            # Pass features and labels along with the model_type
+            self.start_model_fit(model_type, features, labels)
+        if live_prediction and self.model is not None:
+            # For prediction, ensure there's an existing model
+            self.features = features
+            self.start_prediction()
+
+
+    def get_model_type(self):
+        if not self.model_type:
+            self.model_type = self.widget.model_dropdown.currentText()
+        return self.model_type
+            
+    def get_data_choice(self):
+        if not self.data_choice:
+            self.data_choice = "Whole Image"
+        return self.data_choice
+
+    def get_corner_pixels(self):
+        if self.corner_pixels is None:
+            self.corner_pixels = self.viewer.layers["Image"].corner_pixels        
+        return self.corner_pixels
+            
+    def prepare_data_for_model(self):
+        data_choice = self.get_data_choice()
+        corner_pixels = self.get_corner_pixels()
 
         # Find a mask of indices we will use for fetching our data
         mask_idx = (
@@ -276,36 +288,14 @@ class CryoCanvasApp:
 
         if (training_labels is None) or np.any(training_labels.shape == 0):
             self.logger.info("No training data yet. Skipping model update")
-        elif live_fit:
-            # Retrain model
-            self.logger.info(
-                f"training model with labels {training_labels.shape} features {training_features.shape} unique labels {np.unique(training_labels[:])}"
-            )
-            # TODO change this to a thread_worker
-            self.model = self.update_model(
-                training_labels, training_features, model_type
-            )
-            
+            return
+        
+        return training_features, training_labels
 
-        if live_prediction and self.model:
-            # Update prediction_data
-            if use_skimage_features:
-                prediction_features = np.array(self.feature_data_skimage)
-            else:
-                prediction_features = np.array(self.feature_data_tomotwin)
-            # Add 1 becasue of the background label adjustment for the model
-            # TODO change this to a thread_worker
-            prediction = self.predict(
-                self.model, prediction_features, model_type
-            )
-            self.logger.info(
-                f"prediction {prediction.shape} prediction layer {self.get_prediction_layer().data.shape} prediction {np.transpose(prediction).shape} features {prediction_features.shape}"
-            )
-
-            # self.compute_and_visualize_2d_projection(prediction_features)
-            
-            self.get_prediction_layer().data = np.transpose(prediction)
-
+    @thread_worker
+    def model_fit_thread(self, model_type, features, labels):
+        return self.update_model(labels, features, model_type)
+    
     def update_model(self, labels, features, model_type):
         # Flatten labels
         labels = labels.flatten()
@@ -354,7 +344,7 @@ class CryoCanvasApp:
         else:
             raise ValueError(f"Unsupported model type: {model_type}")
 
-    def predict(self, model, features, model_type):
+    def predict(self, model, features):
         # We shift labels + 1 because background is 0 and has special meaning
         prediction = (
             future.predict_segmenter(
@@ -363,14 +353,80 @@ class CryoCanvasApp:
             + 1
         )
 
-        return np.transpose(prediction)
+        # Compute stats in thread too
+        prediction_labels, prediction_counts = np.unique(prediction.data[:], return_counts=True)
+        
+        return (np.transpose(prediction), prediction_labels, prediction_counts)
+
+    @thread_worker
+    def prediction_thread(self, features):
+        # The prediction logic
+        return self.predict(self.model, features)
+
+    def get_features(self):
+        if self.features is None:
+            self.features = self.feature_data_tomotwin
+        return self.features
+    
+    def start_prediction(self):
+        if self.prediction_worker is not None:
+            self.prediction_worker.quit()
+
+        features = self.get_features()
+            
+        self.prediction_worker = self.prediction_thread(features)
+        self.prediction_worker.returned.connect(self.on_prediction_completed)
+        self.prediction_worker.start()
+
+    def on_prediction_completed(self, result):
+        prediction, prediction_labels, prediction_counts = result
+        self.logger.debug("on_prediction_completed")
+        self.prediction_data = np.transpose(prediction)
+
+        self.prediction_labels = prediction_labels
+        self.prediction_counts = prediction_counts
+        
+        self.get_prediction_layer().data = self.prediction_data
+        self.get_prediction_layer().refresh()
+
+        self.update_class_distribution_charts()
+        # self.create_embedding_plot()
+
+    def start_model_fit(self):
+        if self.model_fit_worker is not None:
+            self.model_fit_worker.quit()
+
+        features, labels = self.prepare_data_for_model()
+        self.features = features
+        self.labels = labels
+            
+        self.model_fit_worker = self.model_fit_thread(self.get_model_type(), features, labels)
+        self.model_fit_worker.returned.connect(self.on_model_fit_completed)
+        # TODO update UI to indicate that model training has started
+        self.model_fit_worker.start()
+
+    def on_model_fit_completed(self, model):
+        self.logger.debug("on_model_fit_completed")
+        self.model = model
+
+        # TODO update UI to indicate model is done training
+
+        if self.widget.live_pred_checkbox.isChecked() and self.model is not None:
+            self.logger.debug("live prediction is active, prediction triggered by model fit completion.")
+            self.start_prediction(self.prepared_features)        
 
     def update_class_distribution_charts(self):
         total_pixels = np.product(self.painting_data.shape)
 
-        painting_labels, painting_counts = np.unique(self.painting_data[:], return_counts=True)
-        prediction_labels, prediction_counts = np.unique(self.get_prediction_layer().data[:], return_counts=True)
+        painting_counts = self.painting_counts
+        painting_labels = self.painting_labels
+        prediction_counts = self.prediction_counts
+        prediction_labels = self.prediction_labels
 
+        # TODO separate painting and prediction paths
+        if prediction_labels is None or painting_labels is None:
+            return
+        
         # Calculate percentages instead of raw counts
         painting_percentages = (painting_counts / total_pixels) * 100
         prediction_percentages = (prediction_counts / total_pixels) * 100
@@ -391,7 +447,7 @@ class CryoCanvasApp:
         # Example class to color mapping
         class_color_mapping = {
             label: "#{:02x}{:02x}{:02x}".format(int(rgba[0] * 255), int(rgba[1] * 255), int(rgba[2] * 255))
-            for label, rgba in self.get_labels_colormap().items()
+            for label, rgba in get_labels_colormap().items()
         }
 
         self.widget.figure.clear()
@@ -422,20 +478,22 @@ class CryoCanvasApp:
             ax0.barh(0, unpainted_percentage, color="#AAAAAA", edgecolor="white")
             # ax0.set_title("Unpainted", loc='left')
             ax0.set_xlabel("% of Image")
-            ax0.set_yticks([])  # Hide y-ticks for simplicity
+            ax0.set_yticks([])
 
             # Horizontal bar plots for painting and prediction layers
             ax1.barh(valid_painting_labels, valid_painting_percentages, color=[class_color_mapping.get(x, "#FFFFFF") for x in valid_painting_labels], edgecolor="white")
             # ax1.set_title("Painting", loc='left')
 
             ax1.set_xlabel("% of Image")
-            ax1.set_yticks(valid_painting_labels)
+            # ax1.set_yticks(valid_painting_labels)
+            ax1.set_yticks([])
             ax1.invert_yaxis()  # Invert y-axis to have labels in ascending order from top to bottom
 
             ax2.barh(valid_prediction_labels, valid_prediction_percentages, color=[class_color_mapping.get(x, "#FFFFFF") for x in valid_prediction_labels], edgecolor="white")
             # ax2.set_title("Prediction", loc='left')
             ax2.set_xlabel("% of Image")
-            ax2.set_yticks(valid_prediction_labels)
+            # ax2.set_yticks(valid_prediction_labels)
+            ax2.set_yticks([])
             ax2.invert_yaxis()
 
             # Use set_ylabel to position the titles outside and to the left of the y-axis labels
@@ -456,12 +514,17 @@ class CryoCanvasApp:
 
         self.widget.canvas.draw()
 
-    
-    def estimate_background(self):
-        # Start the background painting in a new thread
-        threading.Thread(target=self._paint_background_thread).start()
+    def start_background_estimation(self, model_type, features, labels):
+        if self.background_estimation_worker is not None:
+            self.background_estimation_worker.quit()
 
-    def _paint_background_thread(self):
+        self.background_estimation_worker = self.estimate_background()
+        self.background_estimation_worker.returned.connect(self.on_background_estimation_completed)
+        # TODO update UI to indicate that background estimation
+        self.background_estimation_worker.start()        
+        
+    @thread_worker
+    def estimate_background(self):
         print("Estimating background label")
         embedding_data = self.feature_data_tomotwin[:]
 
@@ -494,7 +557,7 @@ class CryoCanvasApp:
             self.painting_data[indices[0][i], indices[1][i], indices[2][i]] = 1
 
         # Refresh the painting layer to show the updated background
-        self.get_painting_layer().refresh()
+        # self.get_painting_layer().refresh()
 
     def create_embedding_plot(self):
         self.widget.embedding_figure.clear()
@@ -527,7 +590,7 @@ class CryoCanvasApp:
         class_color_mapping = {
             label: "#{:02x}{:02x}{:02x}".format(
                 int(rgba[0] * 255), int(rgba[1] * 255), int(rgba[2] * 255)
-            ) for label, rgba in self.get_labels_colormap().items()
+            ) for label, rgba in get_labels_colormap().items()
         }
 
         # Convert filtered_labels to a list of colors for each point
@@ -611,7 +674,7 @@ class CryoCanvasWidget(QWidget):
         # Settings Group
         settings_group = QGroupBox("Settings")
         settings_layout = QVBoxLayout()
-        
+
         model_layout = QHBoxLayout()
         model_label = QLabel("Select Model")
         self.model_dropdown = QComboBox()
@@ -619,7 +682,7 @@ class CryoCanvasWidget(QWidget):
         model_layout.addWidget(model_label)
         model_layout.addWidget(self.model_dropdown)
         settings_layout.addLayout(model_layout)
-        
+
         self.basic_checkbox = QCheckBox("Basic")
         self.basic_checkbox.setChecked(True)
         settings_layout.addWidget(self.basic_checkbox)
@@ -644,22 +707,32 @@ class CryoCanvasWidget(QWidget):
         # Controls Group
         controls_group = QGroupBox("Controls")
         controls_layout = QVBoxLayout()
-        
-        data_layout = QHBoxLayout()
-        data_label = QLabel("Select Data for Model Fitting")
-        self.data_dropdown = QComboBox()
-        self.data_dropdown.addItems(["Current Displayed Region", "Whole Image"])
-        data_layout.addWidget(data_label)
-        data_layout.addWidget(self.data_dropdown)
-        controls_layout.addLayout(data_layout)
-        
-        self.live_fit_checkbox = QCheckBox("Live Model Fitting")
-        self.live_fit_checkbox.setChecked(True)
-        controls_layout.addWidget(self.live_fit_checkbox)
 
+        # data_layout = QHBoxLayout()
+        # data_label = QLabel("Select Data for Model Fitting")
+        # self.data_dropdown = QComboBox()
+        # self.data_dropdown.addItems(["Current Displayed Region", "Whole Image"])
+        # data_layout.addWidget(data_label)
+        # data_layout.addWidget(self.data_dropdown)
+        # controls_layout.addLayout(data_layout)
+
+        # Live Model Fitting
+        live_fit_layout = QHBoxLayout()
+        self.live_fit_checkbox = QCheckBox("Live Model Fitting")
+        self.live_fit_checkbox.setChecked(False)
+        live_fit_button = QPushButton("Fit Model Now")
+        live_fit_layout.addWidget(self.live_fit_checkbox)
+        live_fit_layout.addWidget(live_fit_button)
+        controls_layout.addLayout(live_fit_layout)
+
+        # Live Prediction
+        live_pred_layout = QHBoxLayout()
         self.live_pred_checkbox = QCheckBox("Live Prediction")
-        self.live_pred_checkbox.setChecked(True)
-        controls_layout.addWidget(self.live_pred_checkbox)
+        self.live_pred_checkbox.setChecked(False)
+        live_pred_button = QPushButton("Predict Now")
+        live_pred_layout.addWidget(self.live_pred_checkbox)
+        live_pred_layout.addWidget(live_pred_button)
+        controls_layout.addLayout(live_pred_layout)
 
         self.estimate_background_button = QPushButton("Estimate Background")
         controls_layout.addWidget(self.estimate_background_button)
@@ -672,7 +745,7 @@ class CryoCanvasWidget(QWidget):
         self.stats_summary_layout = QVBoxLayout()
 
         self.stats_summary_layout.insertStretch(self.legend_placeholder_index)
-        
+
         self.setupLegend()
 
         self.figure = Figure()
@@ -691,40 +764,66 @@ class CryoCanvasWidget(QWidget):
 
         self.setLayout(main_layout)
 
+        # Connect checkbox signals to actions
+        self.live_fit_checkbox.stateChanged.connect(self.on_live_fit_changed)
+        self.live_pred_checkbox.stateChanged.connect(self.on_live_pred_changed)
+
+        # Connect button clicks to actions
+        live_fit_button.clicked.connect(self.app.start_model_fit)
+        live_pred_button.clicked.connect(self.app.start_prediction)
+
+        self.thickness_slider.valueChanged.connect(self.on_thickness_changed)
+
+    def on_live_fit_changed(self, state):
+        if state == Qt.Checked:
+            self.app.start_model_fit()
+
+    def on_live_pred_changed(self, state):
+        if state == Qt.Checked:
+            # TODO might need to check if this is safe to do, e.g. if a model exists
+            self.app.start_prediction()
+
+    def fit_model_now(self):
+        self.app.start_model_fit()
+
+    def predict_now(self):
+        self.app.start_prediction()
+
     def setupLegend(self):
         if hasattr(self, 'legend_group'):
             # Remove the old legend widget and its layout if it exists
             self.stats_summary_layout.takeAt(self.legend_placeholder_index).widget().deleteLater()
-
         
         painting_layer = self.app.get_painting_layer()
         self.legend_layout = QVBoxLayout()
         self.legend_group = QGroupBox("Class Labels Legend")
 
-        active_labels = np.unique(painting_layer.data)
-        
-        for label_id in active_labels:
-            color = painting_layer.color.get(label_id)
-            # Create a QLabel for color swatch
-            color_swatch = QLabel()
-            pixmap = QPixmap(16, 16)
+        active_labels = self.app.painting_labels
 
-            if color is None:
-                pixmap = self.createCheckerboardPattern()
-            else:
-                pixmap.fill(QColor(*[int(c * 255) for c in color]))
-                
-            color_swatch.setPixmap(pixmap)
+        if active_labels is not None:
 
-            # Editable text box for class label
-            label_edit = QLineEdit(f"Class {label_id if label_id is not None else 0}")
+            for label_id in active_labels:
+                color = painting_layer.color.get(label_id)
+                # Create a QLabel for color swatch
+                color_swatch = QLabel()
+                pixmap = QPixmap(16, 16)
 
-            # Layout for each legend entry
-            entry_layout = QHBoxLayout()
-            entry_layout.addWidget(color_swatch)
-            entry_layout.addWidget(label_edit)
-            self.legend_layout.addLayout(entry_layout)
-        
+                if color is None:
+                    pixmap = self.createCheckerboardPattern()
+                else:
+                    pixmap.fill(QColor(*[int(c * 255) for c in color]))
+
+                color_swatch.setPixmap(pixmap)
+
+                # Editable text box for class label
+                label_edit = QLineEdit(f"Class {label_id if label_id is not None else 0}")
+
+                # Layout for each legend entry
+                entry_layout = QHBoxLayout()
+                entry_layout.addWidget(color_swatch)
+                entry_layout.addWidget(label_edit)
+                self.legend_layout.addLayout(entry_layout)
+
         self.legend_group.setLayout(self.legend_layout)
         self.stats_summary_layout.insertWidget(self.legend_placeholder_index, self.legend_group)
 
@@ -756,6 +855,12 @@ class CryoCanvasWidget(QWidget):
 
 # Initialize your application
 if __name__ == "__main__":
-    zarr_path = "/Users/kharrington/Data/CryoCanvas/cryocanvas_crop_007.zarr"
+    # zarr_path = "/Users/kharrington/Data/CryoCanvas/cryocanvas_crop_007.zarr"
+    # zarr_path = "/Users/kharrington/Data/CryoCanvas/cryocanvas_crop_007_v2.zarr/cryocanvas_crop_007.zarr"
+    zarr_path = "/Users/kharrington/Data/CryoCanvas/cryocanvas_crop_009.zarr/"
     app = CryoCanvasApp(zarr_path)
     # napari.run()
+
+# TODOs:
+# - separate compute from figure generation
+# - 
