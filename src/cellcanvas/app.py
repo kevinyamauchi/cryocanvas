@@ -37,12 +37,12 @@ from sklearn.cross_decomposition import PLSRegression
 from matplotlib.widgets import LassoSelector
 from matplotlib.path import Path
 from threading import Thread
-from cryocanvas.utils import get_labels_colormap
+from cellcanvas.utils import get_labels_colormap
 
 # from https://github.com/napari/napari/issues/4384
 
 # Define a class to encapsulate the Napari viewer and related functionalities
-class CryoCanvasApp:
+class CellCanvasApp:
     def __init__(self, zarr_path):
         self.zarr_path = zarr_path
         self.dataset = zarr.open(zarr_path, mode="r")
@@ -109,7 +109,7 @@ class CryoCanvasApp:
         self.get_painting_layer().n_edit_dimensions = 3
 
     def _init_logging(self):
-        self.logger = logging.getLogger("cryocanvas")
+        self.logger = logging.getLogger("cellcanvas")
         self.logger.setLevel(logging.DEBUG)
         streamHandler = logging.StreamHandler(sys.stdout)
         formatter = logging.Formatter(
@@ -119,8 +119,8 @@ class CryoCanvasApp:
         self.logger.addHandler(streamHandler)
 
     def _add_widget(self):
-        self.widget = CryoCanvasWidget(self)        
-        self.viewer.window.add_dock_widget(self.widget, name="CryoCanvas")
+        self.widget = CellCanvasWidget(self)        
+        self.viewer.window.add_dock_widget(self.widget, name="CellCanvas")
         self.widget.estimate_background_button.clicked.connect(
             self.start_background_estimation
         )
@@ -660,9 +660,9 @@ class CryoCanvasApp:
         print(f"Painted {np.sum(contained)} pixels with label {target_label}")
         
         
-class CryoCanvasWidget(QWidget):
+class CellCanvasWidget(QWidget):
     def __init__(self, app, parent=None):
-        super(CryoCanvasWidget, self).__init__(parent)
+        super(CellCanvasWidget, self).__init__(parent)
         self.app = app
         self.initUI()
 
@@ -858,7 +858,7 @@ if __name__ == "__main__":
     # zarr_path = "/Users/kharrington/Data/CryoCanvas/cryocanvas_crop_007.zarr"
     # zarr_path = "/Users/kharrington/Data/CryoCanvas/cryocanvas_crop_007_v2.zarr/cryocanvas_crop_007.zarr"
     zarr_path = "/Users/kharrington/Data/CryoCanvas/cryocanvas_crop_009.zarr/"
-    app = CryoCanvasApp(zarr_path)
+    app = CellCanvasApp(zarr_path)
     # napari.run()
 
 # TODOs:

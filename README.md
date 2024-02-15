@@ -1,4 +1,4 @@
-# cryocanvas
-A tool to support interactive machine learning for cryoET data
+# cellcanvas
+A tool to support painting in cellular architecture
 
-![cryocanvas screenshot](cover.png)
+![cellcanvas_screenshot](cover.png)
