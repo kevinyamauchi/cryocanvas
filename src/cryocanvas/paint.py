@@ -75,9 +75,6 @@ def paint(self, coord, new_label, refresh=True):
         if new_label == self.colormap.background_value:
             keep_coords = self.data[slice_coord] == self.selected_label
         else:
-            # keep_coords = (
-            #         self.data[slice_coord] == self.colormap.background_value
-            # )
             # get the paintable label values
             features_table = self.features
             paintable_values = features_table.loc[features_table[PAINTABLE_KEY]]["index"].values
