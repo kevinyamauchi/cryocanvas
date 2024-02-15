@@ -789,11 +789,14 @@ class CellCanvasWidget(QWidget):
     def predict_now(self):
         self.app.start_prediction()
 
-    def setupLegend(self):
+    def setupLegend(self):        
+        if not hasattr(self, 'class_labels_mapping'):
+            # Initialize class labels
+            self.class_labels_mapping = {}
+
         if hasattr(self, 'legend_group'):
-            # Remove the old legend widget and its layout if it exists
             self.stats_summary_layout.takeAt(self.legend_placeholder_index).widget().deleteLater()
-        
+
         painting_layer = self.app.get_painting_layer()
         self.legend_layout = QVBoxLayout()
         self.legend_group = QGroupBox("Class Labels Legend")
@@ -801,9 +804,9 @@ class CellCanvasWidget(QWidget):
         active_labels = self.app.painting_labels
 
         if active_labels is not None:
-
             for label_id in active_labels:
                 color = painting_layer.color.get(label_id)
+
                 # Create a QLabel for color swatch
                 color_swatch = QLabel()
                 pixmap = QPixmap(16, 16)
@@ -815,8 +818,16 @@ class CellCanvasWidget(QWidget):
 
                 color_swatch.setPixmap(pixmap)
 
-                # Editable text box for class label
-                label_edit = QLineEdit(f"Class {label_id if label_id is not None else 0}")
+                # Update the mapping with new classes or use the existing name
+                if label_id not in self.class_labels_mapping:
+                    self.class_labels_mapping[label_id] = f"Class {label_id if label_id is not None else 0}"
+
+                # Use the name from the mapping
+                label_name = self.class_labels_mapping[label_id]
+                label_edit = QLineEdit(label_name)
+
+                # Save changes to class labels back to the mapping
+                label_edit.textChanged.connect(lambda text, id=label_id: self.updateClassLabelName(id, text))
 
                 # Layout for each legend entry
                 entry_layout = QHBoxLayout()
@@ -826,6 +837,9 @@ class CellCanvasWidget(QWidget):
 
         self.legend_group.setLayout(self.legend_layout)
         self.stats_summary_layout.insertWidget(self.legend_placeholder_index, self.legend_group)
+
+    def updateClassLabelName(self, label_id, name):
+        self.class_labels_mapping[label_id] = name
 
     def createCheckerboardPattern(self):
         """Creates a QPixmap with a checkerboard pattern."""
@@ -857,7 +871,9 @@ class CellCanvasWidget(QWidget):
 if __name__ == "__main__":
     # zarr_path = "/Users/kharrington/Data/CryoCanvas/cryocanvas_crop_007.zarr"
     # zarr_path = "/Users/kharrington/Data/CryoCanvas/cryocanvas_crop_007_v2.zarr/cryocanvas_crop_007.zarr"
-    zarr_path = "/Users/kharrington/Data/CryoCanvas/cryocanvas_crop_009.zarr/"
+    zarr_path = "/Users/kharrington/Data/cellcanvas/cellcanvas_crop_007.zarr/"
+    # zarr_path = "/Users/kharrington/Data/cellcanvas/cellcanvas_crop_009.zarr/"
+    # zarr_path = "/Users/kharrington/Data/cellcanvas/cellcanvas_crop_010.zarr/"
     app = CellCanvasApp(zarr_path)
     # napari.run()
 
