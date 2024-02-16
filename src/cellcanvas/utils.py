@@ -28,3 +28,54 @@ def get_labels_colormap():
         20: np.array([0.5, 0.5, 0.2, 1]),  # olive green
     }
     return colormap_22
+
+from napari.layers.labels._labels_utils import (
+    indices_in_shape,
+    sphere_indices,
+)
+from napari.layers.labels.labels import _coerce_indices_for_vectorization
+import numpy as np
+
+def paint_maker(logger):
+    def paint(self, coord, new_label, refresh=True):
+        """Paint over existing labels with a new label, using the selected
+        brush shape and size, either only on the visible slice or in all
+        n dimensions.
+
+        Parameters
+        ----------
+        coord : sequence of int
+            Position of mouse cursor in image coordinates.
+        new_label : int
+            Value of the new label to be filled in.
+        refresh : bool
+            Whether to refresh view slice or not. Set to False to batch paint
+            calls.
+        """
+        shape, dims_to_paint = self._get_shape_and_dims_to_paint()
+        paint_scale = np.array(
+            [self.scale[i] for i in dims_to_paint], dtype=float
+        )
+
+        slice_coord = [int(np.round(c)) for c in coord]
+        if self.n_edit_dimensions < self.ndim:
+            coord_paint = [coord[i] for i in dims_to_paint]
+        else:
+            coord_paint = coord
+
+        # Ensure circle doesn't have spurious point
+        # on edge by keeping radius as ##.5
+        radius = np.floor(self.brush_size / 2) + 0.5
+        mask_indices = sphere_indices(radius, tuple(paint_scale))
+
+        mask_indices = mask_indices + np.round(np.array(coord_paint)).astype(
+            int
+        )
+
+        logger.info(f"paint: label = {new_label}, indices = {mask_indices}")
+        
+        self._paint_indices(
+            mask_indices, new_label, shape, dims_to_paint, slice_coord, refresh
+        )
+
+    return paint

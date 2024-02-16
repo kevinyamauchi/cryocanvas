@@ -40,6 +40,7 @@ from sklearn.utils.class_weight import compute_class_weight
 from superqt import ensure_main_thread
 
 from cellcanvas.utils import get_labels_colormap
+from cellcanvas.utils import paint_maker
 
 # from https://github.com/napari/napari/issues/4384
 
@@ -47,7 +48,8 @@ ACTIVE_BUTTON_COLOR = "#AF8B38"
 
 # Define a class to encapsulate the Napari viewer and related functionalities
 class CellCanvasApp:
-    def __init__(self, zarr_path):
+    def __init__(self, zarr_path, extra_logging=False):
+        self.extra_logging = extra_logging
         self.zarr_path = zarr_path
         self.dataset = zarr.open(zarr_path, mode="r")
         self.image_data = self.dataset["crop/original_data"]
@@ -61,12 +63,12 @@ class CellCanvasApp:
         self.painting_labels = None
         self.painting_counts = None        
         self.viewer = napari.Viewer()
-        self._add_threading_workers()
-        self._init_viewer_layers()
         self._init_logging()
+        self._add_threading_workers()        
+        self._init_viewer_layers()
         self._add_widget()
         self.model = None
-
+        
         # Initialize plots
         self.start_computing_embedding_plot()
         self.update_class_distribution_charts()
@@ -109,6 +111,11 @@ class CellCanvasApp:
             scale=self.data_layer.scale,
             color=get_labels_colormap(),
         )
+
+        # Set up painting logging
+        if self.extra_logging:
+            logging_paint = paint_maker(self.logger)
+            self.painting_layer.paint = logging_paint.__get__(self.painting_layer, napari.layers.labels.Labels)
 
         self.painting_labels, self.painting_counts = np.unique(self.painting_data[:], return_counts=True)
 
@@ -868,7 +875,7 @@ class CellCanvasWidget(QWidget):
 
         if active_labels is not None:
             for label_id in active_labels:
-                color = painting_layer.color.get(label_id)
+                color = painting_layer.colormap.color_dict[label_id]
 
                 # Create a QLabel for color swatch
                 color_swatch = QLabel()
