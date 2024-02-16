@@ -64,6 +64,10 @@ class CellCanvasApp:
         self.painting_counts = None        
         self.viewer = napari.Viewer()
         self._init_logging()
+
+        if self.extra_logging:
+            self.logger.info(f"zarr_path: {zarr_path}")
+        
         self._add_threading_workers()        
         self._init_viewer_layers()
         self._add_widget()
@@ -71,7 +75,7 @@ class CellCanvasApp:
         
         # Initialize plots
         self.start_computing_embedding_plot()
-        self.update_class_distribution_charts()
+        self.update_class_distribution_charts()        
         
     def _add_threading_workers(self):
         # Model fitting worker
@@ -390,6 +394,9 @@ class CellCanvasApp:
         if self.prediction_worker is not None:
             self.prediction_worker.quit()
 
+        if self.extra_logging:
+            self.logger.info(f"started prediction")
+            
         # Change button color with status
         self.widget.change_button_color(self.widget.live_pred_button, ACTIVE_BUTTON_COLOR)
             
@@ -424,6 +431,9 @@ class CellCanvasApp:
         if self.model_fit_worker is not None:
             self.model_fit_worker.quit()
 
+        if self.extra_logging:
+            self.logger.info(f"started model fit")
+
         features, labels = self.prepare_data_for_model()
         self.features = features
         self.labels = labels
@@ -452,6 +462,13 @@ class CellCanvasApp:
         prediction_counts = self.prediction_counts if self.prediction_counts is not None else np.array([0])
         prediction_labels = self.prediction_labels if self.prediction_labels is not None else np.array([0])
 
+        if self.extra_logging:
+            self.logger.info(f"update_class_distribution_charts: painting_counts = {painting_counts}, painting_labels = {painting_labels}, prediction_counts = {prediction_counts}, prediction_labels = {prediction_labels}")
+            self.logger.info(f"painting layer: opacity = {self.get_painting_layer().opacity}, brush_size = {self.get_painting_layer().brush_size}, num edit dimensions = {self.get_painting_layer().n_edit_dimensions}")
+            self.logger.info(f"prediction layer: opacity = {self.get_prediction_layer().opacity}, brush_size = {self.get_prediction_layer().brush_size}, num edit dimensions = {self.get_prediction_layer().n_edit_dimensions}")
+            self.logger.info(f"image layer: contrast_limits = {self.viewer.layers['Image'].contrast_limits}, opacity = {self.viewer.layers['Image'].opacity}, gamma = {self.viewer.layers['Image'].gamma}")            
+            self.logger.info(f"Current model type: {self.widget.model_dropdown.currentText()}")
+        
         # Calculate percentages instead of raw counts
         painting_percentages = (painting_counts / total_pixels) * 100
         prediction_percentages = (prediction_counts / total_pixels) * 100
@@ -554,6 +571,7 @@ class CellCanvasApp:
         self.widget.figure.patch.set_facecolor(napari_charcoal_hex)
 
         self.widget.canvas.draw()
+        
 
     def start_background_estimation(self, model_type, features, labels):
         if self.background_estimation_worker is not None:
@@ -623,6 +641,9 @@ class CellCanvasApp:
     def start_computing_embedding_plot(self):
         if self.embedding_worker is not None:
             self.embedding_worker.quit()
+
+        if self.extra_logging:
+            self.logger.info("start computing embedding plot")
             
         self.embedding_worker = self.compute_embedding_projection()
         self.embedding_worker.returned.connect(self.create_embedding_plot)
@@ -634,6 +655,8 @@ class CellCanvasApp:
         if error_message:
             print(error_message)
             return
+
+        self.logger.info("done computing embedding plot")
         
         self.widget.embedding_figure.clear()
 
@@ -698,6 +721,9 @@ class CellCanvasApp:
         # Fetch the currently active label from the painting layer
         target_label = self.get_painting_layer().selected_label
         # Start a new thread to update the painting layer with the current target label
+
+        self.logger.info("start update painting layer")
+        
         update_thread = Thread(target=self.paint_thread, args=(path, target_label,))
         update_thread.start()
 
@@ -715,13 +741,17 @@ class CellCanvasApp:
         shape = self.feature_data_tomotwin.shape[:-1]
 
         # Iterate over all points to update the painting data where contained is True
-        for idx in np.where(contained)[0]:
+        paint_indices = np.where(contained)[0]
+        for idx in paint_indices:
             # Map flat index back to spatial coordinates
             z, y, x = np.unravel_index(idx, shape)
             # Update the painting data
             self.painting_data[z, y, x] = target_label
 
-        print(f"Painted {np.sum(contained)} pixels with label {target_label}")
+        if self.extra_logging:
+            self.logger.info(f"lasso paint: label = {target_label}, indices = {paint_indices}")
+            
+        # print(f"Painted {np.sum(contained)} pixels with label {target_label}")
         
         
 class CellCanvasWidget(QWidget):
@@ -748,13 +778,14 @@ class CellCanvasWidget(QWidget):
         model_layout.addWidget(self.model_dropdown)
         settings_layout.addLayout(model_layout)
 
-        self.basic_checkbox = QCheckBox("Basic")
-        self.basic_checkbox.setChecked(True)
-        settings_layout.addWidget(self.basic_checkbox)
+        # TODO Multiple embeddings disabled during UX evaluation
+        # self.basic_checkbox = QCheckBox("Basic")
+        # self.basic_checkbox.setChecked(True)
+        # settings_layout.addWidget(self.basic_checkbox)
 
-        self.embedding_checkbox = QCheckBox("Embedding")
-        self.embedding_checkbox.setChecked(True)
-        settings_layout.addWidget(self.embedding_checkbox)
+        # self.embedding_checkbox = QCheckBox("Embedding")
+        # self.embedding_checkbox.setChecked(True)
+        # settings_layout.addWidget(self.embedding_checkbox)
 
         thickness_layout = QHBoxLayout()
         thickness_label = QLabel("Adjust Slice Thickness")
@@ -766,6 +797,9 @@ class CellCanvasWidget(QWidget):
         thickness_layout.addWidget(thickness_label)
         thickness_layout.addWidget(self.thickness_slider)
         settings_layout.addLayout(thickness_layout)
+
+        # Update layer contrast limits after thick slices has effect
+        self.app.viewer.layers['Image'].reset_contrast_limits()
 
         settings_group.setLayout(settings_layout)
         main_layout.addWidget(settings_group)
@@ -793,7 +827,9 @@ class CellCanvasWidget(QWidget):
         controls_layout.addLayout(live_pred_layout)
 
         self.estimate_background_button = QPushButton("Estimate Background")
-        controls_layout.addWidget(self.estimate_background_button)
+
+        # TODO disable estimate background button
+        # controls_layout.addWidget(self.estimate_background_button)
 
         controls_group.setLayout(controls_layout)
         main_layout.addWidget(controls_group)
@@ -956,6 +992,7 @@ class CellCanvasWidget(QWidget):
         
     def on_thickness_changed(self, value):
         self.app.viewer.dims.thickness = (value, ) * self.app.viewer.dims.ndim
+        self.app.logger.info(f"Thickness changes: {self.app.viewer.dims.thickness}")
 
 
 # Initialize your application
@@ -965,7 +1002,7 @@ if __name__ == "__main__":
     zarr_path = "/Users/kharrington/Data/cellcanvas/cellcanvas_crop_007.zarr/"
     # zarr_path = "/Users/kharrington/Data/cellcanvas/cellcanvas_crop_009.zarr/"
     # zarr_path = "/Users/kharrington/Data/cellcanvas/cellcanvas_crop_010.zarr/"
-    app = CellCanvasApp(zarr_path)
+    app = CellCanvasApp(zarr_path, extra_logging=True)
     # napari.run()
 
 # TODOs:
