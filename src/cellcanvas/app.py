@@ -422,7 +422,7 @@ class CellCanvasApp:
 
         if self.widget.live_pred_checkbox.isChecked() and self.model is not None:
             self.logger.debug("live prediction is active, prediction triggered by model fit completion.")
-            self.start_prediction(self.prepared_features)        
+            self.start_prediction()
 
     def update_class_distribution_charts(self):
         total_pixels = np.product(self.painting_data.shape) if self.painting_data is not None else 1
