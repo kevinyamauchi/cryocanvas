@@ -7,7 +7,7 @@ def get_labels_colormap():
     colormap_22 = {
         0: np.array([0, 0, 0, 0]),  # alpha
         1: np.array([1, 1, 0, 1]),  # yellow
-        2: np.array([0.5, 0, 0.5, 1]),  # purple
+        2: np.array([0.65, 0, 0.65, 1]),  # purple
         3: np.array([1, 0.65, 0, 1]),  # orange
         4: np.array([0.68, 0.85, 0.9, 1]),  # light blue
         5: np.array([1, 0, 0, 1]),  # red

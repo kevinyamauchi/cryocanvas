@@ -658,11 +658,14 @@ class CellCanvasApp:
         ax = self.widget.embedding_figure.add_subplot(111, facecolor=napari_charcoal_hex)
         scatter = ax.scatter(self.pls_embedding[:, 0], self.pls_embedding[:, 1], s=0.1, c=point_colors, alpha=1.0)
 
-        plt.setp(ax, xticks=[], yticks=[])
-        ax.spines['top'].set_visible(False)
-        ax.spines['right'].set_visible(False)
-        ax.spines['left'].set_color('white')
-        ax.spines['bottom'].set_color('white')
+        # Hide the axes ticks
+        ax.set_xticks([])
+        ax.set_yticks([])
+
+        # Set spines to be visible to create a border effect
+        for spine in ax.spines.values():
+            spine.set_visible(True)
+            spine.set_color('white')  # Set the color of the border here
 
         plt.title('PLS-DA Embedding Using Labels from Painting Layer', color='white')
 
