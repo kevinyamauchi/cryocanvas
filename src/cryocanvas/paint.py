@@ -13,6 +13,9 @@ def paint(self, coord, new_label, refresh=True):
     brush shape and size, either only on the visible slice or in all
     n dimensions.
 
+    This has been modified to only paint over labels that are annotated as
+    "paintable".
+
     Parameters
     ----------
     coord : sequence of int
