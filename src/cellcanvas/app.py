@@ -637,6 +637,8 @@ class CellCanvasApp:
         pls = PLSRegression(n_components=2)
         pls_embedding = pls.fit_transform(filtered_features, filtered_labels)[0]
 
+        self.pls = pls
+
         return pls_embedding, filtered_labels, None
 
         
