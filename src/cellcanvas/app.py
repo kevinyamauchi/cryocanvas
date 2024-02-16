@@ -479,6 +479,8 @@ class CellCanvasApp:
             prediction_percentages = np.array([0])
             valid_painting_labels = np.array([0])
             valid_prediction_labels = np.array([0])
+            valid_painting_percentages = np.array([0])
+            valid_prediction_percentages = np.array([0])            
 
             unpainted_percentage = 0
         else:
