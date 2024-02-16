@@ -1,42 +1,44 @@
-import napari
-import zarr
-import numpy as np
-import threading
-from qtpy.QtWidgets import (
-    QWidget,
-    QVBoxLayout,
-    QLabel,
-    QComboBox,
-    QHBoxLayout,
-    QCheckBox,
-    QGroupBox,
-    QPushButton,
-    QSlider,
-    QLineEdit,
-)
-from qtpy.QtCore import Qt
-from qtpy.QtGui import QColor, QPainter, QPixmap, QFont
-from skimage.feature import multiscale_basic_features
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.utils.class_weight import compute_class_weight
-from skimage import future
-import toolz as tz
-from psygnal import debounced
-from superqt import ensure_main_thread
 import logging
 import sys
-import xgboost as xgb
+import threading
+from threading import Thread
+
 import matplotlib.pyplot as plt
+import napari
+import numpy as np
+import toolz as tz
+import xgboost as xgb
+import zarr
+from magicgui.tqdm import tqdm
 from matplotlib.backends.backend_qt5agg import (
     FigureCanvasQTAgg as FigureCanvas,
 )
 from matplotlib.figure import Figure
-from magicgui.tqdm import tqdm
-from napari.qt.threading import thread_worker
-from sklearn.cross_decomposition import PLSRegression
-from matplotlib.widgets import LassoSelector
 from matplotlib.path import Path
-from threading import Thread
+from matplotlib.widgets import LassoSelector
+from napari.qt.threading import thread_worker
+from psygnal import debounced
+from qtpy.QtCore import Qt
+from qtpy.QtGui import QColor, QFont, QPainter, QPixmap
+from qtpy.QtWidgets import (
+    QCheckBox,
+    QComboBox,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QSlider,
+    QVBoxLayout,
+    QWidget,
+)
+from skimage import future
+from skimage.feature import multiscale_basic_features
+from sklearn.cross_decomposition import PLSRegression
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.utils.class_weight import compute_class_weight
+from superqt import ensure_main_thread
+
 from cellcanvas.utils import get_labels_colormap
 
 # from https://github.com/napari/napari/issues/4384
@@ -62,14 +64,18 @@ class CellCanvasApp:
         self._init_logging()
         self._add_widget()
         self.model = None
-        self.create_embedding_plot()        
+
+        # Initialize plots
+        self.start_computing_embedding_plot()
+        self.update_class_distribution_charts()
 
     def _add_threading_workers(self):
         # Model fitting worker
         self.model_fit_worker = None
         # Prediction worker
         self.prediction_worker = None
-        self.background_estimation_worker = None        
+        self.background_estimation_worker = None
+        self.embedding_worker = None
 
     def _init_viewer_layers(self):
         self.data_layer = self.viewer.add_image(self.image_data, name="Image", projection_mode='mean')
@@ -140,6 +146,8 @@ class CellCanvasApp:
                 )
             )
 
+        # connect start_computing_embedding_plot to self.create_embedding_plot()
+            
         # TODO other events:
         # - paint layer data change triggers live model fit, class distributions, embeddings
         # - model fit triggers live prediction
@@ -159,6 +167,7 @@ class CellCanvasApp:
         # Define corner_pixels based on the current view or other logic
         self.corner_pixels = self.viewer.layers["Image"].corner_pixels        
 
+        # TODO check if this is stalling things
         self.painting_labels, self.painting_counts = np.unique(self.painting_data[:], return_counts=True)
         
         # Ensure the prediction layer visual is updated
@@ -168,7 +177,7 @@ class CellCanvasApp:
         self.update_class_distribution_charts()
 
         # Update projection
-        self.create_embedding_plot()
+        self.start_computing_embedding_plot()        
 
         self.widget.setupLegend()
 
@@ -416,33 +425,36 @@ class CellCanvasApp:
             self.start_prediction(self.prepared_features)        
 
     def update_class_distribution_charts(self):
-        total_pixels = np.product(self.painting_data.shape)
+        total_pixels = np.product(self.painting_data.shape) if self.painting_data is not None else 1
 
-        painting_counts = self.painting_counts
-        painting_labels = self.painting_labels
-        prediction_counts = self.prediction_counts
-        prediction_labels = self.prediction_labels
+        painting_counts = self.painting_counts if self.painting_counts is not None else np.array([0])
+        painting_labels = self.painting_labels if self.painting_labels is not None else np.array([0])
+        prediction_counts = self.prediction_counts if self.prediction_counts is not None else np.array([0])
+        prediction_labels = self.prediction_labels if self.prediction_labels is not None else np.array([0])
 
-        # TODO separate painting and prediction paths
-        if prediction_labels is None or painting_labels is None:
-            return
-        
         # Calculate percentages instead of raw counts
         painting_percentages = (painting_counts / total_pixels) * 100
         prediction_percentages = (prediction_counts / total_pixels) * 100
 
-        # Separate subplot for class 0 in painting layer
-        unpainted_percentage = painting_percentages[painting_labels == 0] if 0 in painting_labels else [0]
+        # Handle cases where there are no valid painting or prediction labels yet
+        if not np.any(painting_labels > 0) and not np.any(prediction_labels > 0):
+            painting_percentages = np.array([0])
+            prediction_percentages = np.array([0])
+            valid_painting_labels = np.array([0])
+            valid_prediction_labels = np.array([0])
 
-        # Exclude class 0 for prediction layer
-        valid_prediction_indices = prediction_labels > 0
-        valid_prediction_labels = prediction_labels[valid_prediction_indices]
-        valid_prediction_percentages = prediction_percentages[valid_prediction_indices]
+            unpainted_percentage = 0
+        else:
+            # Exclude class 0 for both painting and prediction layers
+            valid_painting_indices = painting_labels > 0
+            valid_painting_labels = painting_labels[valid_painting_indices]
+            valid_painting_percentages = painting_percentages[valid_painting_indices]
 
-        # Exclude class 0 for painting layer percentages
-        valid_painting_indices = painting_labels > 0
-        valid_painting_labels = painting_labels[valid_painting_indices]
-        valid_painting_percentages = painting_percentages[valid_painting_indices]
+            valid_prediction_indices = prediction_labels > 0
+            valid_prediction_labels = prediction_labels[valid_prediction_indices]
+            valid_prediction_percentages = prediction_percentages[valid_prediction_indices]
+
+            unpainted_percentage = painting_percentages[painting_labels == 0] if 0 in painting_labels else [0]
 
         # Example class to color mapping
         class_color_mapping = {
@@ -480,6 +492,11 @@ class CellCanvasApp:
             ax0.set_xlabel("% of Image")
             ax0.set_yticks([])
 
+            # Ensure to handle the case where valid_painting_labels or valid_prediction_labels are empty or only contain zeros
+            if len(valid_painting_labels) == 0:
+                valid_painting_labels = np.array([0])  # Default label
+                valid_painting_percentages = np.array([0])  # Default percentage
+            
             # Horizontal bar plots for painting and prediction layers
             ax1.barh(valid_painting_labels, valid_painting_percentages, color=[class_color_mapping.get(x, "#FFFFFF") for x in valid_painting_labels], edgecolor="white")
             # ax1.set_title("Painting", loc='left')
@@ -489,6 +506,10 @@ class CellCanvasApp:
             ax1.set_yticks([])
             ax1.invert_yaxis()  # Invert y-axis to have labels in ascending order from top to bottom
 
+            if len(valid_prediction_labels) == 0:
+                valid_prediction_labels = np.array([0])  # Default label
+                valid_prediction_percentages = np.array([0])  # Default percentage
+            
             ax2.barh(valid_prediction_labels, valid_prediction_percentages, color=[class_color_mapping.get(x, "#FFFFFF") for x in valid_prediction_labels], edgecolor="white")
             # ax2.set_title("Prediction", loc='left')
             ax2.set_xlabel("% of Image")
@@ -559,25 +580,45 @@ class CellCanvasApp:
         # Refresh the painting layer to show the updated background
         # self.get_painting_layer().refresh()
 
-    def create_embedding_plot(self):
-        self.widget.embedding_figure.clear()
-
-        # Flatten the feature data and labels to match shapes
+    @thread_worker
+    def compute_embedding_projection(self):
         features = self.feature_data_tomotwin[:].reshape(-1, self.feature_data_tomotwin.shape[-1])
         labels = self.painting_data[:].flatten()
-
+        
         # Filter out entries where the label is 0
         filtered_features = features[labels > 0]
         filtered_labels = labels[labels > 0]
 
         # Check if there are enough samples to proceed
         if filtered_features.shape[0] < 2:
-            print("Not enough labeled data to create an embedding plot. Need at least 2 samples.")
-            return
+            return None, None, "Not enough labeled data to create an embedding plot. Need at least 2 samples."
 
         # Proceed with PLSRegression as there's enough data
-        self.pls = PLSRegression(n_components=2)
-        self.pls_embedding = self.pls.fit_transform(filtered_features, filtered_labels)[0]
+        pls = PLSRegression(n_components=2)
+        pls_embedding = pls.fit_transform(filtered_features, filtered_labels)[0]
+
+        return pls_embedding, filtered_labels, None
+
+        
+    def start_computing_embedding_plot(self):
+        if self.embedding_worker is not None:
+            self.embedding_worker.quit()
+            
+        self.embedding_worker = self.compute_embedding_projection()
+        self.embedding_worker.returned.connect(self.create_embedding_plot)
+        # TODO update UI to indicate that model training has started
+        self.embedding_worker.start()
+        
+    def create_embedding_plot(self, result):
+        pls_embedding, filtered_labels, error_message = result
+        if error_message:
+            print(error_message)
+            return
+        
+        self.widget.embedding_figure.clear()
+
+        self.pls_embedding = pls_embedding
+        labels = self.painting_data[:].flatten()
 
         # Original image coordinates
         z_dim, y_dim, x_dim, _ = self.feature_data_tomotwin.shape
