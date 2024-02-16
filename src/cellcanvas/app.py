@@ -15,7 +15,7 @@ from qtpy.QtWidgets import (
     QLineEdit,
 )
 from qtpy.QtCore import Qt
-from qtpy.QtGui import QColor, QPainter, QPixmap
+from qtpy.QtGui import QColor, QPainter, QPixmap, QFont
 from skimage.feature import multiscale_basic_features
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.utils.class_weight import compute_class_weight
@@ -664,6 +664,7 @@ class CellCanvasWidget(QWidget):
     def __init__(self, app, parent=None):
         super(CellCanvasWidget, self).__init__(parent)
         self.app = app
+        self.label_edits = {}
         self.initUI()
 
     def initUI(self):
@@ -747,6 +748,12 @@ class CellCanvasWidget(QWidget):
         self.stats_summary_layout.insertStretch(self.legend_placeholder_index)
 
         self.setupLegend()
+        # Connect legend updates
+        try:
+            self.app.painting_layer.events.selected_label.connect(self.updateLegendHighlighting)
+        except AttributeError:
+            # Handle the case where painting_layer or label_changed_signal does not exist
+            pass
 
         self.figure = Figure()
         self.canvas = FigureCanvas(self.figure)
@@ -789,7 +796,7 @@ class CellCanvasWidget(QWidget):
     def predict_now(self):
         self.app.start_prediction()
 
-    def setupLegend(self):        
+    def setupLegend(self):
         if not hasattr(self, 'class_labels_mapping'):
             # Initialize class labels
             self.class_labels_mapping = {}
@@ -800,6 +807,8 @@ class CellCanvasWidget(QWidget):
         painting_layer = self.app.get_painting_layer()
         self.legend_layout = QVBoxLayout()
         self.legend_group = QGroupBox("Class Labels Legend")
+        # Track label edits
+        self.label_edits = {}
 
         active_labels = self.app.painting_labels
 
@@ -826,6 +835,10 @@ class CellCanvasWidget(QWidget):
                 label_name = self.class_labels_mapping[label_id]
                 label_edit = QLineEdit(label_name)
 
+                # Highlight the label if it is currently being used
+                if label_id == painting_layer._selected_label:
+                    self.highlightLabel(label_edit)
+
                 # Save changes to class labels back to the mapping
                 label_edit.textChanged.connect(lambda text, id=label_id: self.updateClassLabelName(id, text))
 
@@ -834,9 +847,26 @@ class CellCanvasWidget(QWidget):
                 entry_layout.addWidget(color_swatch)
                 entry_layout.addWidget(label_edit)
                 self.legend_layout.addLayout(entry_layout)
+                self.label_edits[label_id] = label_edit
 
         self.legend_group.setLayout(self.legend_layout)
         self.stats_summary_layout.insertWidget(self.legend_placeholder_index, self.legend_group)
+
+    def updateLegendHighlighting(self, selected_label_event):
+        """Update highlighting of legend"""
+        current_label_id = selected_label_event.source._selected_label
+
+        for label_id, label_edit in self.label_edits.items():
+            if label_id == current_label_id:
+                self.highlightLabel(label_edit)
+            else:
+                self.removeHighlightLabel(label_edit)
+        
+    def highlightLabel(self, label_edit):
+        label_edit.setStyleSheet("QLineEdit { background-color: #3D6A88; }")
+
+    def removeHighlightLabel(self, label_edit):
+        label_edit.setStyleSheet("")        
 
     def updateClassLabelName(self, label_id, name):
         self.class_labels_mapping[label_id] = name
