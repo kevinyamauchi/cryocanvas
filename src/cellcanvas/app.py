@@ -43,6 +43,8 @@ from cellcanvas.utils import get_labels_colormap
 
 # from https://github.com/napari/napari/issues/4384
 
+ACTIVE_BUTTON_COLOR = "#AF8B38"
+
 # Define a class to encapsulate the Napari viewer and related functionalities
 class CellCanvasApp:
     def __init__(self, zarr_path):
@@ -68,7 +70,7 @@ class CellCanvasApp:
         # Initialize plots
         self.start_computing_embedding_plot()
         self.update_class_distribution_charts()
-
+        
     def _add_threading_workers(self):
         # Model fitting worker
         self.model_fit_worker = None
@@ -381,6 +383,9 @@ class CellCanvasApp:
         if self.prediction_worker is not None:
             self.prediction_worker.quit()
 
+        # Change button color with status
+        self.widget.change_button_color(self.widget.live_pred_button, ACTIVE_BUTTON_COLOR)
+            
         features = self.get_features()
             
         self.prediction_worker = self.prediction_thread(features)
@@ -399,9 +404,16 @@ class CellCanvasApp:
         self.get_prediction_layer().refresh()
 
         self.update_class_distribution_charts()
+
+        # Reset color
+        self.widget.reset_button_color(self.widget.live_pred_button)
+        
         # self.create_embedding_plot()
 
     def start_model_fit(self):
+        # Change button color with status
+        self.widget.change_button_color(self.widget.live_fit_button, ACTIVE_BUTTON_COLOR)
+        
         if self.model_fit_worker is not None:
             self.model_fit_worker.quit()
 
@@ -418,7 +430,8 @@ class CellCanvasApp:
         self.logger.debug("on_model_fit_completed")
         self.model = model
 
-        # TODO update UI to indicate model is done training
+        # Reset color
+        self.widget.reset_button_color(self.widget.live_fit_button)
 
         if self.widget.live_pred_checkbox.isChecked() and self.model is not None:
             self.logger.debug("live prediction is active, prediction triggered by model fit completion.")
@@ -738,6 +751,7 @@ class CellCanvasWidget(QWidget):
         self.thickness_slider = QSlider(Qt.Horizontal)
         self.thickness_slider.setMinimum(0)
         self.thickness_slider.setMaximum(50)
+        self.thickness_slider.valueChanged.connect(self.on_thickness_changed)
         self.thickness_slider.setValue(10)
         thickness_layout.addWidget(thickness_label)
         thickness_layout.addWidget(self.thickness_slider)
@@ -750,30 +764,22 @@ class CellCanvasWidget(QWidget):
         controls_group = QGroupBox("Controls")
         controls_layout = QVBoxLayout()
 
-        # data_layout = QHBoxLayout()
-        # data_label = QLabel("Select Data for Model Fitting")
-        # self.data_dropdown = QComboBox()
-        # self.data_dropdown.addItems(["Current Displayed Region", "Whole Image"])
-        # data_layout.addWidget(data_label)
-        # data_layout.addWidget(self.data_dropdown)
-        # controls_layout.addLayout(data_layout)
-
         # Live Model Fitting
         live_fit_layout = QHBoxLayout()
         self.live_fit_checkbox = QCheckBox("Live Model Fitting")
         self.live_fit_checkbox.setChecked(False)
-        live_fit_button = QPushButton("Fit Model Now")
+        self.live_fit_button = QPushButton("Fit Model Now")
         live_fit_layout.addWidget(self.live_fit_checkbox)
-        live_fit_layout.addWidget(live_fit_button)
+        live_fit_layout.addWidget(self.live_fit_button)
         controls_layout.addLayout(live_fit_layout)
 
         # Live Prediction
         live_pred_layout = QHBoxLayout()
         self.live_pred_checkbox = QCheckBox("Live Prediction")
         self.live_pred_checkbox.setChecked(False)
-        live_pred_button = QPushButton("Predict Now")
+        self.live_pred_button = QPushButton("Predict Now")
         live_pred_layout.addWidget(self.live_pred_checkbox)
-        live_pred_layout.addWidget(live_pred_button)
+        live_pred_layout.addWidget(self.live_pred_button)
         controls_layout.addLayout(live_pred_layout)
 
         self.estimate_background_button = QPushButton("Estimate Background")
@@ -817,11 +823,15 @@ class CellCanvasWidget(QWidget):
         self.live_pred_checkbox.stateChanged.connect(self.on_live_pred_changed)
 
         # Connect button clicks to actions
-        live_fit_button.clicked.connect(self.app.start_model_fit)
-        live_pred_button.clicked.connect(self.app.start_prediction)
+        self.live_fit_button.clicked.connect(self.app.start_model_fit)
+        self.live_pred_button.clicked.connect(self.app.start_prediction)        
 
-        self.thickness_slider.valueChanged.connect(self.on_thickness_changed)
+    def change_button_color(self, button, color):
+        button.setStyleSheet(f"background-color: {color};")
 
+    def reset_button_color(self, button):
+        self.change_button_color(button, "")
+        
     def on_live_fit_changed(self, state):
         if state == Qt.Checked:
             self.app.start_model_fit()
@@ -831,7 +841,7 @@ class CellCanvasWidget(QWidget):
             # TODO might need to check if this is safe to do, e.g. if a model exists
             self.app.start_prediction()
 
-    def fit_model_now(self):
+    def fit_model_now(self):        
         self.app.start_model_fit()
 
     def predict_now(self):
