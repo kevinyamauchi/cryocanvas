@@ -80,3 +80,66 @@ def test_feature_validation_valid_features_table():
         class_values,
         features_table[CLASS_KEY]
     )
+
+
+def test_paint_with_locked_features():
+    """Check that paint does not paint over locked features."""
+    labels_layer = _make_labels_layer()
+
+    labels_layer.features = pd.DataFrame(
+        {
+            "index": [0, 1, 2],
+            PAINTABLE_KEY: [True, False, True],
+            CLASS_KEY: ["background", "locked", "paintable"],
+        }
+    )
+
+    _ = SegmentManager(labels_layer)
+
+    # lock paintable feature
+    labels_layer.preserve_labels = True
+
+    # Set the brush size to 1 to only paint over the selected pixel
+    labels_layer.brush_size = 1
+
+    # paint over a locked feature
+    labels_layer.paint((1, 1, 1), 2)
+
+    # check that the locked feature was not painted over
+    np.testing.assert_array_equal(
+        labels_layer.data, _make_labels_layer().data
+    )
+
+    labels_layer.paint((6, 6, 6), 1)
+    are_different = not np.array_equal(labels_layer.data, _make_labels_layer().data)
+    assert are_different, "The arrays should be unequal after the paint operation"
+
+
+def test_fill_with_locked_features():
+    """Check that fill does not paint over locked features."""
+    labels_layer = _make_labels_layer()
+
+    labels_layer.features = pd.DataFrame(
+        {
+            "index": [0, 1, 2],
+            PAINTABLE_KEY: [True, False, True],
+            CLASS_KEY: ["background", "locked", "paintable"],
+        }
+    )
+
+    _ = SegmentManager(labels_layer)
+
+    # lock paintable feature
+    labels_layer.preserve_labels = True
+
+    # fill over a locked feature
+    labels_layer.fill((1, 1, 1), 2)
+
+
+    # check that the locked feature was not painted over
+    np.testing.assert_array_equal(
+        labels_layer.data, _make_labels_layer().data)
+    
+    labels_layer.fill((6, 6, 6), 1)
+    are_different = not np.array_equal(labels_layer.data, _make_labels_layer().data)
+    assert are_different, "The arrays should be unequal after the fill operation"
