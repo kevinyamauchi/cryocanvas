@@ -110,9 +110,11 @@ def test_paint_with_locked_features():
         labels_layer.data, _make_labels_layer().data
     )
 
+    # paint over a paintable feature
     labels_layer.paint((6, 6, 6), 1)
-    are_different = not np.array_equal(labels_layer.data, _make_labels_layer().data)
-    assert are_different, "The arrays should be unequal after the paint operation"
+
+    # check that the paintable feature was painted over
+    assert labels_layer.data[6, 6, 6] == 1, "The paint operation should have painted over the paintable feature"
 
 
 def test_fill_with_locked_features():
@@ -140,6 +142,8 @@ def test_fill_with_locked_features():
     np.testing.assert_array_equal(
         labels_layer.data, _make_labels_layer().data)
     
+    # fill over a paintable feature
     labels_layer.fill((6, 6, 6), 1)
-    are_different = not np.array_equal(labels_layer.data, _make_labels_layer().data)
-    assert are_different, "The arrays should be unequal after the fill operation"
+
+    # check that the paintable feature was painted over
+    assert labels_layer.data[6, 6, 6] == 1, "The fill operation should have painted over the paintable feature"
