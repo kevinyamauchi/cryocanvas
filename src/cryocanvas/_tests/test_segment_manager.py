@@ -83,7 +83,7 @@ def test_feature_validation_valid_features_table():
 
 
 def test_paint_with_locked_features():
-    """Check that paint does not paint over locked features."""
+    """Check that paint only paints paintable features."""
     labels_layer = _make_labels_layer()
 
     labels_layer.features = pd.DataFrame(
@@ -118,7 +118,7 @@ def test_paint_with_locked_features():
 
 
 def test_fill_with_locked_features():
-    """Check that fill does not paint over locked features."""
+    """Check that fill only paints paintable features."""
     labels_layer = _make_labels_layer()
 
     labels_layer.features = pd.DataFrame(
