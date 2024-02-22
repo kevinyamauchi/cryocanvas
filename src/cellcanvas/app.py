@@ -31,6 +31,8 @@ from qtpy.QtWidgets import (
     QSlider,
     QVBoxLayout,
     QWidget,
+    QFileDialog,
+    QMessageBox,
 )
 from skimage import future
 from skimage.feature import multiscale_basic_features
@@ -41,6 +43,7 @@ from superqt import ensure_main_thread
 
 from cellcanvas.utils import get_labels_colormap
 from cellcanvas.utils import paint_maker
+import joblib
 
 # from https://github.com/napari/napari/issues/4384
 
@@ -647,7 +650,7 @@ class CellCanvasApp:
             self.embedding_worker.quit()
 
         if self.extra_logging:
-            self.logger.info("start computing embedding plot")
+            self.logger.info("start computing embedding plot")        
             
         self.embedding_worker = self.compute_embedding_projection()
         self.embedding_worker.returned.connect(self.create_embedding_plot)
@@ -727,10 +730,16 @@ class CellCanvasApp:
         # Start a new thread to update the painting layer with the current target label
 
         self.logger.info("start update painting layer")
-        
-        update_thread = Thread(target=self.paint_thread, args=(path, target_label,))
-        update_thread.start()
+        self.widget.change_embedding_label_color(ACTIVE_BUTTON_COLOR)
 
+        self.painting_worker = self.paint_thread(path, target_label)
+        self.painting_worker.returned.connect(self.on_embedding_paint_complete)               
+        self.painting_worker.start()
+
+    def on_embedding_paint_complete(self):        
+        self.widget.change_embedding_label_color("#262930")
+        
+    @thread_worker
     def paint_thread(self, lasso_path, target_label):
         # Ensure we're working with the full feature dataset
         all_features_flat = self.feature_data_tomotwin[:].reshape(-1, self.feature_data_tomotwin.shape[-1])
@@ -835,6 +844,10 @@ class CellCanvasWidget(QWidget):
         # TODO disable estimate background button
         # controls_layout.addWidget(self.estimate_background_button)
 
+        self.export_model_button = QPushButton("Export Model")
+        controls_layout.addWidget(self.export_model_button)
+        self.export_model_button.clicked.connect(self.export_model)
+        
         controls_group.setLayout(controls_layout)
         main_layout.addWidget(controls_group)
 
@@ -856,8 +869,8 @@ class CellCanvasWidget(QWidget):
         self.canvas = FigureCanvas(self.figure)
         self.stats_summary_layout.addWidget(self.canvas)
 
-        embedding_label = QLabel("Painting Embedding (Draw to label in embedding)")
-        self.stats_summary_layout.addWidget(embedding_label)
+        self.embedding_label = QLabel("Painting Embedding (Draw to label in embedding)")
+        self.stats_summary_layout.addWidget(self.embedding_label)
 
         self.embedding_figure = Figure()
         self.embedding_canvas = FigureCanvas(self.embedding_figure)
@@ -876,6 +889,21 @@ class CellCanvasWidget(QWidget):
         self.live_fit_button.clicked.connect(self.app.start_model_fit)
         self.live_pred_button.clicked.connect(self.app.start_prediction)        
 
+    def export_model(self):
+        model = self.app.model
+        if model is not None:
+            filePath, _ = QFileDialog.getSaveFileName(self, "Save Model", "", "Joblib Files (*.joblib)")
+            if filePath:
+                joblib.dump(model, filePath)
+                QMessageBox.information(self, "Model Export", "Model exported successfully!")
+                print(f"Wrote model file to: {filePath}")
+        else:
+            QMessageBox.warning(self, "Model Export", "No model available to export.")
+
+    def change_embedding_label_color(self, color):
+        """Change the background color of the embedding label."""
+        self.embedding_label.setStyleSheet(f"background-color: {color};")
+            
     def change_button_color(self, button, color):
         button.setStyleSheet(f"background-color: {color};")
 
@@ -1003,9 +1031,11 @@ class CellCanvasWidget(QWidget):
 if __name__ == "__main__":
     # zarr_path = "/Users/kharrington/Data/CryoCanvas/cryocanvas_crop_007.zarr"
     # zarr_path = "/Users/kharrington/Data/CryoCanvas/cryocanvas_crop_007_v2.zarr/cryocanvas_crop_007.zarr"
-    zarr_path = "/Users/kharrington/Data/cellcanvas/cellcanvas_crop_007.zarr/"
+    # zarr_path = "/Users/kharrington/Data/cellcanvas/cellcanvas_crop_007.zarr/"
     # zarr_path = "/Users/kharrington/Data/cellcanvas/cellcanvas_crop_009.zarr/"
     # zarr_path = "/Users/kharrington/Data/cellcanvas/cellcanvas_crop_010.zarr/"
+    # zarr_path = "/Users/kharrington/Data/cellcanvas/cryocanvas_crop_008.zarr/"
+    zarr_path = "/Users/kharrington/Data/cellcanvas/cryocanvas_crop_011.zarr/"
     app = CellCanvasApp(zarr_path, extra_logging=True)
     # napari.run()
 
