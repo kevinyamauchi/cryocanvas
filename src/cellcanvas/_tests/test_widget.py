@@ -12,7 +12,7 @@ def test_cellcanvas_widget(make_napari_viewer, capsys):
     viewer.add_image(np.random.random((100, 100)))
 
     # create our widget, passing in the viewer
-    my_widget = CryoCanvasWidget(viewer)
+    my_widget = CellCanvasWidget(viewer)
 
     # call our widget method
     my_widget._on_click()

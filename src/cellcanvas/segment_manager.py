@@ -6,9 +6,9 @@ from napari.utils.events import EventedSet, Event
 import pandas as pd
 from psygnal.containers import EventedList
 
-from cryocanvas.constants import PAINTABLE_KEY, CLASS_KEY, UNASSIGNED_CLASS
-from cryocanvas.paint import paint as monkey_paint
-from cryocanvas.fill import fill as monkey_fill
+from cellcanvas.constants import PAINTABLE_KEY, CLASS_KEY, UNASSIGNED_CLASS
+from cellcanvas.paint import paint as monkey_paint
+from cellcanvas.fill import fill as monkey_fill
 
 
 class SegmentManager:

@@ -2,7 +2,7 @@ from scipy import ndimage as ndi
 from napari.layers.labels.labels import _coerce_indices_for_vectorization
 import numpy as np
 
-from cryocanvas.constants import PAINTABLE_KEY
+from cellcanvas.constants import PAINTABLE_KEY
 
 def fill(self, coord, new_label, refresh=True):
         """Replace an existing label with a new label, either just at the

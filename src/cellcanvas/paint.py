@@ -5,7 +5,7 @@ from napari.layers.labels._labels_utils import (
 from napari.layers.labels.labels import _coerce_indices_for_vectorization
 import numpy as np
 
-from cryocanvas.constants import PAINTABLE_KEY
+from cellcanvas.constants import PAINTABLE_KEY
 
 
 def paint(self, coord, new_label, refresh=True):

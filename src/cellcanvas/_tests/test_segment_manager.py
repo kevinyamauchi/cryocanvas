@@ -3,8 +3,8 @@ from napari.layers import Labels
 import numpy as np
 import pytest
 
-from cryocanvas.segment_manager import SegmentManager
-from cryocanvas.constants import PAINTABLE_KEY, CLASS_KEY, UNASSIGNED_CLASS
+from cellcanvas.segment_manager import SegmentManager
+from cellcanvas.constants import PAINTABLE_KEY, CLASS_KEY, UNASSIGNED_CLASS
 
 
 def _make_labels_layer() -> Labels:
