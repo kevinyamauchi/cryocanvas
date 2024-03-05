@@ -3,7 +3,7 @@ from napari.layers import Labels
 import numpy as np
 import pytest
 
-from cellcanvas.segment_manager import SegmentManager
+from cellcanvas.instance.segment_manager import SegmentManager
 from cellcanvas.constants import PAINTABLE_KEY, CLASS_KEY, UNASSIGNED_CLASS
 
 

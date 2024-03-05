@@ -1,4 +1,4 @@
-from typing import List, Tuple
+from typing import Tuple
 
 import numpy as np
 import napari
@@ -9,8 +9,8 @@ from psygnal.containers import EventedList
 from skimage.segmentation import find_boundaries
 
 from cellcanvas.constants import PAINTABLE_KEY, CLASS_KEY, UNASSIGNED_CLASS
-from cellcanvas.paint import paint as monkey_paint
-from cellcanvas.fill import fill as monkey_fill
+from cellcanvas.instance.paint import paint as monkey_paint
+from cellcanvas.instance.fill import fill as monkey_fill
 
 
 class SegmentManager:
