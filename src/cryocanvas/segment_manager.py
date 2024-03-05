@@ -1,16 +1,21 @@
+from typing import List, Tuple
+
 import numpy as np
 from napari.layers import Labels
 import pandas as pd
+from psygnal.containers import EventedList
 
 from cryocanvas.constants import PAINTABLE_KEY, CLASS_KEY, UNASSIGNED_CLASS
 from cryocanvas.paint import paint as monkey_paint
 
 
 class SegmentManager:
-    def __init__(self, labels_layer: Labels):
+    def __init__(self, labels_layer: Labels, classes: Tuple[str, ...] = (UNASSIGNED_CLASS,)):
         self.labels_layer = labels_layer
+        self.classes = EventedList(classes)
 
         self._validate_features_table()
+        self._validate_classes()
 
         # monkey patch our painting function
         self.labels_layer.paint = monkey_paint.__get__(self.labels_layer, Labels)
@@ -47,7 +52,29 @@ class SegmentManager:
         # set the validated features
         self.labels_layer.features = features_table
 
+    def _validate_classes(self):
+        """Validate the classes that can be assigned to segments."""
+        if UNASSIGNED_CLASS not in self.classes:
+            # ensure the unassigned class is present in classes.
+            self.classes.append(UNASSIGNED_CLASS)
+
     @property
     def paintable_labels(self) -> np.ndarray:
         features_table = self.labels_layer.features
         return features_table.loc[features_table[PAINTABLE_KEY]]["index"].values()
+
+    def set_paintable_by_class(self, class_name: str, paintable: bool):
+        """Set the paintable value for all instances of a given class."""
+        pass
+
+    def set_paintable_by_instance(self, label_value: str, paintable: bool):
+        """Set all the paintable value for an instance"""
+        pass
+
+    def color_by_class(self):
+        """Color segments by their class."""
+        pass
+
+    def color_by_instance(self):
+        """Color segments by their instance ID."""
+        pass
