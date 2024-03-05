@@ -2,6 +2,7 @@ from typing import List, Tuple
 
 import numpy as np
 from napari.layers import Labels
+from napari.utils.events import EventedSet, Event
 import pandas as pd
 from psygnal.containers import EventedList
 
@@ -17,6 +18,9 @@ class SegmentManager:
 
         self._validate_features_table()
         self._validate_classes()
+
+        # object to store the currently selected label
+        self._selected_labels = EventedSet()
 
         # monkey patch our painting function
         self.labels_layer.paint = monkey_paint.__get__(self.labels_layer, Labels)
@@ -80,3 +84,32 @@ class SegmentManager:
     def color_by_instance(self):
         """Color segments by their instance ID."""
         pass
+
+    def _connect_mouse_events(self, layer: Labels):
+        layer.mouse_drag_callbacks.append(self._on_click_selection)
+
+    def _on_click_selection(self, layer: Labels, event: Event):
+        """Mouse callback for selecting labels"""
+        label_index = layer.get_value(
+            position=event.position,
+            view_direction=event.view_direction,
+            dims_displayed=event.dims_displayed,
+            world=True,
+        )
+        selection_set = self._selected_labels
+        print(event.modfiers)
+        if "control" not in event.modifiers():
+            # user must press control
+            return
+
+        if (label_index is None) or (label_index == layer._background_label):
+            # the background or outside the layer was clicked, clear the selection
+            if "shift" not in event.modifiers:
+                # don't clear the selection if the shift key was held
+                selection_set.clear()
+            return
+        if "shift" in event.modifiers:
+            selection_set.symmetric_difference_update([label_index])
+        else:
+            selection_set._set.clear()
+            selection_set.update([label_index])
