@@ -4,6 +4,7 @@ import numpy as np
 
 from cellcanvas.constants import PAINTABLE_KEY
 
+
 def fill(self, coord, new_label, refresh=True):
         """Replace an existing label with a new label, either just at the
         connected component if the `contiguous` flag is `True` or everywhere

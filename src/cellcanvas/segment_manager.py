@@ -1,10 +1,12 @@
 from typing import List, Tuple
 
 import numpy as np
+import napari
 from napari.layers import Labels
 from napari.utils.events import EventedSet, Event
 import pandas as pd
 from psygnal.containers import EventedList
+from skimage.segmentation import find_boundaries
 
 from cellcanvas.constants import PAINTABLE_KEY, CLASS_KEY, UNASSIGNED_CLASS
 from cellcanvas.paint import paint as monkey_paint
@@ -12,19 +14,28 @@ from cellcanvas.fill import fill as monkey_fill
 
 
 class SegmentManager:
-    def __init__(self, labels_layer: Labels, classes: Tuple[str, ...] = (UNASSIGNED_CLASS,)):
+    def __init__(self, labels_layer: Labels, viewer:napari.Viewer, classes: Tuple[str, ...] = (UNASSIGNED_CLASS,)):
         self.labels_layer = labels_layer
+        self.viewer = viewer
         self.classes = EventedList(classes)
 
         self._validate_features_table()
         self._validate_classes()
 
+        # make the points layer for selection
+        self.points_layer = self.viewer.add_points(ndim=3, name=f"{self.labels_layer.name} selection", size=1)
+        self.points_layer.shading = "spherical"
+        self.viewer.layers.selection = [self.labels_layer]
+
         # object to store the currently selected label
         self._selected_labels = EventedSet()
+        self._selected_labels.events.changed.connect(self._on_selection_change)
 
         # monkey patch our painting function
         self.labels_layer.paint = monkey_paint.__get__(self.labels_layer, Labels)
         self.labels_layer.fill = monkey_fill.__get__(self.labels_layer, Labels)
+
+        self._connect_mouse_events(self.labels_layer)
 
     def _validate_features_table(self):
         """Validate the features table in the labels layer.
@@ -97,12 +108,11 @@ class SegmentManager:
             world=True,
         )
         selection_set = self._selected_labels
-        print(event.modfiers)
-        if "control" not in event.modifiers():
+        if "alt" not in event.modifiers:
             # user must press control
             return
 
-        if (label_index is None) or (label_index == layer._background_label):
+        if (label_index is None) or (label_index == layer.colormap.background_value):
             # the background or outside the layer was clicked, clear the selection
             if "shift" not in event.modifiers:
                 # don't clear the selection if the shift key was held
@@ -113,3 +123,32 @@ class SegmentManager:
         else:
             selection_set._set.clear()
             selection_set.update([label_index])
+
+    def _on_selection_change(self, event: Event):
+        selected_labels = list(self._selected_labels)
+
+        if len(selected_labels) == 0:
+            # if no selection, clear the points layer
+            self.points_layer.data = np.empty((0,3))
+            return
+
+        label_image = self.labels_layer.data
+        points_to_add = []
+        for label in selected_labels:
+            points_to_add.append(
+                convert_segmentation_to_surface_points(
+                    label_image=label_image,
+                    label_value=label
+                )
+            )
+        self.points_layer.data = np.concatenate(points_to_add)
+
+
+def convert_segmentation_to_surface_points(
+        label_image: np.ndarray,
+        label_value: int,
+):
+    binary_mask = label_image == label_value
+    surface_mask = find_boundaries(binary_mask)
+    surface_coords = np.argwhere(surface_mask)
+    return surface_coords
