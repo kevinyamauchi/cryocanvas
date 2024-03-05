@@ -7,6 +7,7 @@ from psygnal.containers import EventedList
 
 from cryocanvas.constants import PAINTABLE_KEY, CLASS_KEY, UNASSIGNED_CLASS
 from cryocanvas.paint import paint as monkey_paint
+from cryocanvas.fill import fill as monkey_fill
 
 
 class SegmentManager:
@@ -19,6 +20,7 @@ class SegmentManager:
 
         # monkey patch our painting function
         self.labels_layer.paint = monkey_paint.__get__(self.labels_layer, Labels)
+        self.labels_layer.fill = monkey_fill.__get__(self.labels_layer, Labels)
 
     def _validate_features_table(self):
         """Validate the features table in the labels layer.

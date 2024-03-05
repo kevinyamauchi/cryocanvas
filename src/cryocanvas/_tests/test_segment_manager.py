@@ -80,3 +80,70 @@ def test_feature_validation_valid_features_table():
         class_values,
         features_table[CLASS_KEY]
     )
+
+
+def test_paint_with_locked_features():
+    """Check that paint only paints paintable features."""
+    labels_layer = _make_labels_layer()
+
+    labels_layer.features = pd.DataFrame(
+        {
+            "index": [0, 1, 2],
+            PAINTABLE_KEY: [True, False, True],
+            CLASS_KEY: ["background", "locked", "paintable"],
+        }
+    )
+
+    _ = SegmentManager(labels_layer)
+
+    # lock paintable feature
+    labels_layer.preserve_labels = True
+
+    # Set the brush size to 1 to only paint over the selected pixel
+    labels_layer.brush_size = 1
+
+    # paint over a locked feature
+    labels_layer.paint((1, 1, 1), 2)
+
+    # check that the locked feature was not painted over
+    np.testing.assert_array_equal(
+        labels_layer.data, _make_labels_layer().data
+    )
+
+    # paint over a paintable feature
+    labels_layer.paint((6, 6, 6), 1)
+
+    # check that the paintable feature was painted over
+    assert labels_layer.data[6, 6, 6] == 1, "The paint operation should have painted over the paintable feature"
+
+
+def test_fill_with_locked_features():
+    """Check that fill only paints paintable features."""
+    labels_layer = _make_labels_layer()
+
+    labels_layer.features = pd.DataFrame(
+        {
+            "index": [0, 1, 2],
+            PAINTABLE_KEY: [True, False, True],
+            CLASS_KEY: ["background", "locked", "paintable"],
+        }
+    )
+
+    _ = SegmentManager(labels_layer)
+
+    # lock paintable feature
+    labels_layer.preserve_labels = True
+
+    # fill over a locked feature
+    labels_layer.fill((1, 1, 1), 2)
+
+
+    # check that the locked feature was not painted over
+    np.testing.assert_array_equal(
+        labels_layer.data, _make_labels_layer().data)
+    
+    # fill over a paintable feature
+    labels_layer.fill((6, 6, 6), 1)
+
+    # check that the paintable feature was painted over
+    assert labels_layer.data[6, 6, 6] == 1, "The fill operation should have painted over the paintable feature"
