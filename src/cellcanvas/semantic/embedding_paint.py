@@ -55,7 +55,6 @@ class EmbeddingPaintingApp:
         self.features = {"tomotwin": self.dataset["features/tomotwin"],
                          "skimage": self.dataset["features/skimage"]}
         
-        self.data_choice = None
         self.corner_pixels = None
         self.model_type = None
         self.prediction_labels = None
@@ -200,12 +199,11 @@ class EmbeddingPaintingApp:
             feature_params,
             live_fit,
             live_prediction,
-            data_choice,
     ):
         self.logger.info(f"Labels data has changed! {event}")
 
         # Assuming you have a method to prepare features and labels
-        features, labels = self.prepare_data_for_model(data_choice, corner_pixels)
+        features, labels = self.prepare_data_for_model(corner_pixels)
 
         # Update stats
         self.painting_labels, self.painting_counts = np.unique(self.painting_data[:], return_counts=True)
@@ -215,7 +213,6 @@ class EmbeddingPaintingApp:
             self.start_model_fit(model_type, features, labels)
         if live_prediction and self.model is not None:
             # For prediction, ensure there's an existing model
-            self.features = features
             self.start_prediction()
 
     def get_model_type(self):
@@ -223,18 +220,34 @@ class EmbeddingPaintingApp:
             self.model_type = self.widget.model_dropdown.currentText()
         return self.model_type
 
-    def get_data_choice(self):
-        if not self.data_choice:
-            self.data_choice = "Whole Image"
-        return self.data_choice
-
     def get_corner_pixels(self):
         if self.corner_pixels is None:
             self.corner_pixels = self.viewer.layers["Image"].corner_pixels
         return self.corner_pixels
 
+    def compute_features(self, mask_idx=None):
+        features = []
+
+        for name, array in self.features.items():
+            arr = array[:]
+            
+            if mask_idx is not None:
+                features.append(
+                    arr[mask_idx].reshape(
+                        -1, arr.shape[-1]
+                    )
+                )
+            else:
+                features.append(
+                    arr.reshape(
+                        -1, arr.shape[-1]
+                    )
+                )
+
+        if features:
+            return np.concatenate(features, axis=1)
+    
     def prepare_data_for_model(self):
-        data_choice = self.get_data_choice()
         corner_pixels = self.get_corner_pixels()
 
         # Find a mask of indices we will use for fetching our data
@@ -246,62 +259,21 @@ class EmbeddingPaintingApp:
             slice(corner_pixels[0, 1], corner_pixels[1, 1]),
             slice(corner_pixels[0, 2], corner_pixels[1, 2]),
         )
-        if data_choice == "Whole Image":
-            mask_idx = tuple(
-                [slice(0, sz) for sz in self.get_data_layer().data.shape]
-            )
+
+        mask_idx = tuple(
+            [slice(0, sz) for sz in self.get_data_layer().data.shape]
+        )
 
         self.logger.info(
             f"mask idx {mask_idx}, image {self.get_data_layer().data.shape}"
         )
         active_image = self.get_data_layer().data[mask_idx]
         self.logger.info(
-            f"active image shape {active_image.shape} data choice {data_choice} painting_data {self.painting_data.shape} mask_idx {mask_idx}"
+            f"active image shape {active_image.shape} painting_data {self.painting_data.shape} mask_idx {mask_idx}"
         )
 
-        active_labels = self.painting_data[mask_idx]
-
-        def compute_features(
-                mask_idx, use_skimage_features, use_tomotwin_features
-        ):
-            features = []
-            if use_skimage_features:
-                features.append(
-                    self.features["skimage"][mask_idx].reshape(
-                        -1, self.features["skimage"].shape[-1]
-                    )
-                )
-            if use_tomotwin_features:
-                features.append(
-                    self.features["tomotwin"][mask_idx].reshape(
-                        -1, self.features["tomotwin"].shape[-1]
-                    )
-                )
-
-            if features:
-                return np.concatenate(features, axis=1)
-            else:
-                raise ValueError("No features selected for computation.")
-
-        training_labels = None
-
-        use_skimage_features = False
-        use_tomotwin_features = True
-
-        if data_choice == "Current Displayed Region":
-            # Use only the currently displayed region.
-            training_features = compute_features(
-                mask_idx, use_skimage_features, use_tomotwin_features
-            )
-            training_labels = np.squeeze(active_labels)
-        elif data_choice == "Whole Image":
-            if use_skimage_features:
-                training_features = np.array(self.features["skimage"])
-            else:
-                training_features = np.array(self.features["tomotwin"])
-            training_labels = np.array(self.painting_data)
-        else:
-            raise ValueError(f"Invalid data choice: {data_choice}")
+        training_features = self.compute_features()
+        training_labels = np.array(self.painting_data)
 
         if (training_labels is None) or np.any(training_labels.shape == 0):
             self.logger.info("No training data yet. Skipping model update")
@@ -381,9 +353,7 @@ class EmbeddingPaintingApp:
         return self.predict(self.model, features)
 
     def get_features(self):
-        if self.features is None:
-            self.features = self.features["tomotwin"]
-        return self.features
+        return self.compute_features()
 
     def start_prediction(self):
         if self.prediction_worker is not None:
@@ -409,7 +379,7 @@ class EmbeddingPaintingApp:
         self.prediction_labels = prediction_labels
         self.prediction_counts = prediction_counts
 
-        self.get_prediction_layer().data = self.prediction_data
+        self.get_prediction_layer().data = self.prediction_data.reshape(self.get_prediction_layer().data.shape)
         self.get_prediction_layer().refresh()
 
         self.update_class_distribution_charts()
@@ -430,8 +400,6 @@ class EmbeddingPaintingApp:
             self.logger.info(f"started model fit")
 
         features, labels = self.prepare_data_for_model()
-        self.features = features
-        self.labels = labels
 
         self.model_fit_worker = self.model_fit_thread(self.get_model_type(), features, labels)
         self.model_fit_worker.returned.connect(self.on_model_fit_completed)
@@ -577,7 +545,7 @@ class EmbeddingPaintingApp:
 
     @thread_worker
     def compute_embedding_projection(self):
-        features = self.features["tomotwin"][:].reshape(-1, self.features["tomotwin"].shape[-1])
+        features = self.get_features()
         labels = self.painting_data[:].flatten()
 
         # Filter out entries where the label is 0
@@ -622,7 +590,7 @@ class EmbeddingPaintingApp:
         labels = self.painting_data[:].flatten()
 
         # Original image coordinates
-        z_dim, y_dim, x_dim, _ = self.features["tomotwin"].shape
+        z_dim, y_dim, x_dim = self.image_data.shape
         X, Y, Z = np.meshgrid(np.arange(x_dim), np.arange(y_dim), np.arange(z_dim), indexing='ij')
         original_coords = np.vstack([X.ravel(), Y.ravel(), Z.ravel()]).T
         # Filter coordinates using the same mask applied to the features
@@ -693,7 +661,7 @@ class EmbeddingPaintingApp:
     @thread_worker
     def paint_thread(self, lasso_path, target_label):
         # Ensure we're working with the full feature dataset
-        all_features_flat = self.features["tomotwin"][:].reshape(-1, self.features["tomotwin"].shape[-1])
+        all_features_flat = self.get_features()
 
         # Use the PLS model to project these features into the embedding space
         all_embeddings = self.pls.transform(all_features_flat)
@@ -702,7 +670,7 @@ class EmbeddingPaintingApp:
         contained = np.array([lasso_path.contains_point(point) for point in all_embeddings[:, :2]])
 
         # The shape of the original image data, to map flat indices back to spatial coordinates
-        shape = self.features["tomotwin"].shape[:-1]
+        shape = self.image_data.shape
 
         # Iterate over all points to update the painting data where contained is True
         paint_indices = np.where(contained)[0]
