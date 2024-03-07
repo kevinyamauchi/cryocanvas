@@ -52,8 +52,8 @@ class EmbeddingPaintingApp:
         self.dataset = zarr.open(zarr_path, mode="r")
         self.image_data = self.dataset["crop/original_data"]
 
-        self.features = {"tomotwin": self.dataset["features/tomotwin"],
-                         "skimage": self.dataset["features/skimage"]}
+        self.features = {"tomotwin": self.reshape_features(self.dataset["features/tomotwin"][:]),
+                         "skimage": self.reshape_features(self.dataset["features/skimage"][:])}
         
         self.corner_pixels = None
         self.model_type = None
@@ -75,6 +75,9 @@ class EmbeddingPaintingApp:
         # Initialize plots
         self.start_computing_embedding_plot()
         self.update_class_distribution_charts()
+
+    def reshape_features(self, arr):
+        return arr.reshape(-1, arr.shape[-1])
 
     def _add_threading_workers(self):
         # Model fitting worker
@@ -225,24 +228,14 @@ class EmbeddingPaintingApp:
             self.corner_pixels = self.viewer.layers["Image"].corner_pixels
         return self.corner_pixels
 
-    def compute_features(self, mask_idx=None):
+    def compute_features(self):
+        # TODO: this introduces a slowdown so we should do all this when features are added
         features = []
 
         for name, array in self.features.items():
             arr = array[:]
             
-            if mask_idx is not None:
-                features.append(
-                    arr[mask_idx].reshape(
-                        -1, arr.shape[-1]
-                    )
-                )
-            else:
-                features.append(
-                    arr.reshape(
-                        -1, arr.shape[-1]
-                    )
-                )
+            features.append(arr)                        
 
         if features:
             return np.concatenate(features, axis=1)
@@ -805,7 +798,7 @@ class EmbeddingPaintingWidget(QWidget):
             try:
                 new_features = zarr.open_array(zarr_path, mode="r")
 
-                self.app.features[zarr_path] = new_features
+                self.app.features[zarr_path] = self.app.reshape_features(new_features[:])
             except Exception as e:
                 print(f"Error loading features from zarr array: {e}")        
         
