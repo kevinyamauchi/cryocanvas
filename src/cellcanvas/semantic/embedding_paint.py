@@ -1,8 +1,7 @@
 import logging
 import sys
-import threading
-from threading import Thread
 
+import joblib
 import matplotlib.pyplot as plt
 import napari
 import numpy as np
@@ -23,16 +22,16 @@ from qtpy.QtGui import QColor, QFont, QPainter, QPixmap
 from qtpy.QtWidgets import (
     QCheckBox,
     QComboBox,
+    QFileDialog,
     QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QPushButton,
     QSlider,
     QVBoxLayout,
     QWidget,
-    QFileDialog,
-    QMessageBox,
 )
 from skimage import future
 from skimage.feature import multiscale_basic_features
@@ -41,16 +40,10 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.utils.class_weight import compute_class_weight
 from superqt import ensure_main_thread
 
-from cellcanvas.utils import get_labels_colormap
-from cellcanvas.utils import paint_maker
-import joblib
-
-# from https://github.com/napari/napari/issues/4384
+from cellcanvas.utils import get_labels_colormap, paint_maker
 
 ACTIVE_BUTTON_COLOR = "#AF8B38"
 
-
-# Define a class to encapsulate the Napari viewer and related functionalities
 class EmbeddingPaintingApp:
     def __init__(self, zarr_path, extra_logging=False):
         self.extra_logging = extra_logging
@@ -86,7 +79,6 @@ class EmbeddingPaintingApp:
         self.model_fit_worker = None
         # Prediction worker
         self.prediction_worker = None
-        self.background_estimation_worker = None
         self.embedding_worker = None
 
     def _init_viewer_layers(self):
@@ -144,9 +136,6 @@ class EmbeddingPaintingApp:
     def _add_widget(self):
         self.widget = EmbeddingPaintingWidget(self)
         # self.viewer.window.add_dock_widget(self.widget, name="CellCanvas")
-        self.widget.estimate_background_button.clicked.connect(
-            self.start_background_estimation
-        )
         self._connect_events()
 
     def _connect_events(self):
@@ -583,51 +572,6 @@ class EmbeddingPaintingApp:
 
         self.widget.canvas.draw()
 
-    def start_background_estimation(self, model_type, features, labels):
-        if self.background_estimation_worker is not None:
-            self.background_estimation_worker.quit()
-
-        self.background_estimation_worker = self.estimate_background()
-        self.background_estimation_worker.returned.connect(self.on_background_estimation_completed)
-        # TODO update UI to indicate that background estimation
-        self.background_estimation_worker.start()
-
-    @thread_worker
-    def estimate_background(self):
-        print("Estimating background label")
-        embedding_data = self.feature_data_tomotwin[:]
-
-        # Compute the median of the embeddings
-        median_embedding = np.median(embedding_data, axis=(0, 1, 2))
-
-        # Compute the Euclidean distance from the median for each embedding
-        distances = np.sqrt(
-            np.sum((embedding_data - median_embedding) ** 2, axis=-1)
-        )
-
-        # Define a threshold for background detection
-        # TODO note this is hardcoded
-        threshold = np.percentile(distances.flatten(), 1)
-
-        # Identify background pixels (where distance is less than the threshold)
-        background_mask = distances < threshold
-        indices = np.where(background_mask)
-
-        print(
-            f"Distance distribution: min {np.min(distances)} max {np.max(distances)} mean {np.mean(distances)} median {np.median(distances)} threshold {threshold}"
-        )
-
-        print(f"Labeling {np.sum(background_mask)} pixels as background")
-
-        # TODO: optimize this because it is wicked slow
-        #       once that is done the threshold can be increased
-        # Update the painting data with the background class (1)
-        for i in range(len(indices[0])):
-            self.painting_data[indices[0][i], indices[1][i], indices[2][i]] = 1
-
-        # Refresh the painting layer to show the updated background
-        # self.get_painting_layer().refresh()
-
     @thread_worker
     def compute_embedding_projection(self):
         features = self.feature_data_tomotwin[:].reshape(-1, self.feature_data_tomotwin.shape[-1])
@@ -843,11 +787,6 @@ class EmbeddingPaintingWidget(QWidget):
         live_pred_layout.addWidget(self.live_pred_button)
         controls_layout.addLayout(live_pred_layout)
 
-        self.estimate_background_button = QPushButton("Estimate Background")
-
-        # TODO disable estimate background button
-        # controls_layout.addWidget(self.estimate_background_button)
-
         self.export_model_button = QPushButton("Export Model")
         controls_layout.addWidget(self.export_model_button)
         self.export_model_button.clicked.connect(self.export_model)
@@ -1029,3 +968,18 @@ class EmbeddingPaintingWidget(QWidget):
     def on_thickness_changed(self, value):
         self.app.viewer.dims.thickness = (value,) * self.app.viewer.dims.ndim
         self.app.logger.info(f"Thickness changes: {self.app.viewer.dims.thickness}")
+
+
+if __name__ == "__main__":
+    # zarr_path = "/Users/kharrington/Data/CryoCanvas/cryocanvas_crop_007.zarr"
+    # zarr_path = "/Users/kharrington/Data/CryoCanvas/cryocanvas_crop_007_v2.zarr/cryocanvas_crop_007.zarr"
+    zarr_path = "/Users/kharrington/Data/cellcanvas/cellcanvas_crop_007.zarr/"
+    # zarr_path = "/Users/kharrington/Data/cellcanvas/cellcanvas_crop_009.zarr/"
+    # zarr_path = "/Users/kharrington/Data/cellcanvas/cellcanvas_crop_010.zarr/"
+    # zarr_path = "/Users/kharrington/Data/cellcanvas/cryocanvas_crop_008.zarr/"
+    # zarr_path = "/Users/kharrington/Data/cellcanvas/cryocanvas_crop_011.zarr/"
+    app = EmbeddingPaintingApp(zarr_path, extra_logging=True)
+
+    app.viewer.window.add_dock_widget(app.widget, name="CellCanvas")
+    # napari.run()
+        
