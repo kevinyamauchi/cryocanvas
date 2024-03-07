@@ -1,4 +1,4 @@
-from typing import Tuple
+from typing import Tuple, Optional
 
 import numpy as np
 import napari
@@ -15,21 +15,42 @@ from cellcanvas.instance.fill import fill as monkey_fill
 
 class SegmentManager:
     def __init__(self, labels_layer: Labels, viewer:napari.Viewer, classes: Tuple[str, ...] = (UNASSIGNED_CLASS,)):
-        self.labels_layer = labels_layer
         self.viewer = viewer
         self.classes = EventedList(classes)
 
-        self._validate_features_table()
-        self._validate_classes()
+        self.points_layer = None
 
-        # make the points layer for selection
-        self.points_layer = self.viewer.add_points(ndim=3, name=f"{self.labels_layer.name} selection", size=1)
-        self.points_layer.shading = "spherical"
-        self.viewer.layers.selection = [self.labels_layer]
+        # set up the labels layer
+        self._labels_layer = None
+        self.labels_layer = labels_layer
 
         # object to store the currently selected label
         self._selected_labels = EventedSet()
         self._selected_labels.events.changed.connect(self._on_selection_change)
+
+    @property
+    def labels_layer(self) ->Optional[Labels]:
+        return self._labels_layer
+
+    @labels_layer.setter
+    def labels_layer(self, labels_layer: Optional[Labels]=None) -> None:
+        if self._labels_layer is not None:
+            self._disconnect_mouse_events(self._labels_layer)
+
+        self._labels_layer = labels_layer
+        self._initialize_labels_layer()
+
+    def _initialize_labels_layer(self):
+        if self._labels_layer is None:
+            return
+        # make the points layer for selection
+        if self.points_layer is None:
+            self.points_layer = self.viewer.add_points(ndim=3, name=f"{self.labels_layer.name} selection", size=1)
+            self.points_layer.shading = "spherical"
+            self.viewer.layers.selection = [self.labels_layer]
+
+        self._validate_features_table()
+        self._validate_classes()
 
         # monkey patch our painting function
         self.labels_layer.paint = monkey_paint.__get__(self.labels_layer, Labels)
@@ -45,6 +66,8 @@ class SegmentManager:
             - class membership
             - paintable
         """
+        if self.labels_layer is None:
+            return
         features_table = self.labels_layer.features
 
         if len(features_table) == 0:
@@ -71,6 +94,8 @@ class SegmentManager:
 
     def _validate_classes(self):
         """Validate the classes that can be assigned to segments."""
+        if self.labels_layer is None:
+            return
         if UNASSIGNED_CLASS not in self.classes:
             # ensure the unassigned class is present in classes.
             self.classes.append(UNASSIGNED_CLASS)
@@ -98,6 +123,9 @@ class SegmentManager:
 
     def _connect_mouse_events(self, layer: Labels):
         layer.mouse_drag_callbacks.append(self._on_click_selection)
+
+    def _disconnect_mouse_events(self, layer: Labels):
+        layer.mouse_drag_callbacks.remove(self._on_click_selection)
 
     def _on_click_selection(self, layer: Labels, event: Event):
         """Mouse callback for selecting labels"""
