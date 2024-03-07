@@ -32,6 +32,7 @@ from qtpy.QtWidgets import (
     QSlider,
     QVBoxLayout,
     QWidget,
+    QFileDialog,
 )
 from skimage import future
 from skimage.feature import multiscale_basic_features
@@ -741,15 +742,10 @@ class EmbeddingPaintingWidget(QWidget):
         model_layout.addWidget(self.model_dropdown)
         settings_layout.addLayout(model_layout)
 
-        # TODO Multiple embeddings disabled during UX evaluation
-        # self.basic_checkbox = QCheckBox("Basic")
-        # self.basic_checkbox.setChecked(True)
-        # settings_layout.addWidget(self.basic_checkbox)
-
-        # self.embedding_checkbox = QCheckBox("Embedding")
-        # self.embedding_checkbox.setChecked(True)
-        # settings_layout.addWidget(self.embedding_checkbox)
-
+        self.add_features_button = QPushButton("Add Features")
+        self.add_features_button.clicked.connect(self.add_features)
+        settings_layout.addWidget(self.add_features_button)
+        
         thickness_layout = QHBoxLayout()
         thickness_label = QLabel("Adjust Slice Thickness")
         self.thickness_slider = QSlider(Qt.Horizontal)
@@ -834,6 +830,17 @@ class EmbeddingPaintingWidget(QWidget):
         self.live_fit_button.clicked.connect(self.app.start_model_fit)
         self.live_pred_button.clicked.connect(self.app.start_prediction)
 
+    def add_features(self):
+        zarr_path = QFileDialog.getExistingDirectory(self, "Select Directory")
+
+        if zarr_path:
+            try:
+                new_features = zarr.open_array(zarr_path, mode="r")
+
+                self.app.features[zarr_path] = new_features
+            except Exception as e:
+                print(f"Error loading features from zarr array: {e}")        
+        
     def export_model(self):
         model = self.app.model
         if model is not None:
