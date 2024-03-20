@@ -7,6 +7,10 @@ from cellcanvas.data.data_manager import DataManager
 
 
 class SegmentationModel(Protocol):
+    """Protocol for semantic segmentations models that are
+    compatible with the  SemanticSegmentationManager.
+    """
+
     def fit(self, X, y): ...
     def predict(self, X): ...
 
