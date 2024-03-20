@@ -1,10 +1,15 @@
 import numpy as np
+from napari.layers.labels._labels_utils import (
+    sphere_indices,
+)
+
 
 def get_labels_colormap():
     """Return a colormap for distinct label colors based on:
     Green-Armytage, P., 2010. A colour alphabet and the limits of colour coding. JAIC-Journal of the International Colour Association, 5.
     """
     colormap_22 = {
+        None: np.array([1, 1, 1, 1]),  # default is white
         0: np.array([0, 0, 0, 0]),  # alpha
         1: np.array([1, 1, 0, 1]),  # yellow
         2: np.array([0.65, 0, 0.65, 1]),  # purple
@@ -29,12 +34,6 @@ def get_labels_colormap():
     }
     return colormap_22
 
-from napari.layers.labels._labels_utils import (
-    indices_in_shape,
-    sphere_indices,
-)
-from napari.layers.labels.labels import _coerce_indices_for_vectorization
-import numpy as np
 
 def paint_maker(logger):
     def paint(self, coord, new_label, refresh=True):
@@ -72,8 +71,10 @@ def paint_maker(logger):
             int
         )
 
-        logger.info(f"paint: label = {new_label}, indices = {mask_indices}")
-        
+        logger.info(
+            format="paint: label = %(new_label)s, indices = %(mask_indices)s"
+        )
+
         self._paint_indices(
             mask_indices, new_label, shape, dims_to_paint, slice_coord, refresh
         )
