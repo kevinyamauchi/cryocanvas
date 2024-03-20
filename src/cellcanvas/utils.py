@@ -71,9 +71,7 @@ def paint_maker(logger):
             int
         )
 
-        logger.info(
-            format="paint: label = %(new_label)s, indices = %(mask_indices)s"
-        )
+        logger.info("paint: label = %s, indices = %s", new_label, mask_indices)
 
         self._paint_indices(
             mask_indices, new_label, shape, dims_to_paint, slice_coord, refresh

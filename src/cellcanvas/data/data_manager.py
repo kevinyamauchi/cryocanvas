@@ -32,7 +32,7 @@ class DataManager:
         for dataset in self.datasets:
             # get the features and labels
             # todo make lazier
-            dataset_features = np.moveaxis(np.asarray(dataset.features), 0, -1)
+            dataset_features = np.asarray(dataset.concatenated_features)
             dataset_labels = np.asarray(dataset.labels)
 
             # reshape the data
